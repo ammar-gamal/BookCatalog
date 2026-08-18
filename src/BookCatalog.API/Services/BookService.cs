@@ -115,6 +115,7 @@ public class BookService : IBookService
         targetBook.PublicationYear = request.PublicationYear;
         targetBook.Price = request.Price;
         targetBook.Description = request.Description;
+        targetBook.Genre = request.Genre;
         await _bookRepository.UpdateAsync(targetBook, ct);
         _logger.LogInformation("Updated book {BookId}.", id);
 
