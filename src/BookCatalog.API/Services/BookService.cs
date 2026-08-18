@@ -34,6 +34,7 @@ public class BookService : IBookService
                                        PublicationYear = b.PublicationYear
                                    })
                                    .ToList();
+        _logger.LogDebug("Retrieved {Count} books", books.Count);
 
         return Task.FromResult(Result<List<BookDto>>.Ok(books));
     }
@@ -55,6 +56,8 @@ public class BookService : IBookService
 
     public async Task<Result<BookDto>> CreateAsync(CreateBookRequestDto request, CancellationToken ct = default)
     {
+        _logger.LogInformation("Creating new book with Isbn {Isbn}", request.Isbn);
+
         if(await _bookRepository.GetBookIdByIsbnAsync(request.Isbn, ct) is int)
         {
             _logger.LogWarning("Book with ISBN {Isbn} already exists.", request.Isbn);
@@ -79,6 +82,8 @@ public class BookService : IBookService
 
     public async Task<Result<BookDto>> UpdateAsync(int id, UpdateBookRequestDto request, CancellationToken ct = default)
     {
+        _logger.LogInformation("Updating book with ID {BookId}.", id);
+
         var targetBook = await _bookRepository.GetByIdAsync(id, ct);
 
         if(targetBook is null)
@@ -117,6 +122,7 @@ public class BookService : IBookService
     }
     public async Task<Result> DeleteAsync(int id, CancellationToken ct = default)
     {
+        _logger.LogInformation("Deleting book with ID {BookId}.", id);
         var book = await _bookRepository.GetByIdAsync(id, ct);
 
         if(book is null)
