@@ -1,4 +1,6 @@
-﻿using BookCatalog.API.Dtos;
+using BookCatalog.API.Dtos;
+using BookCatalog.API.Dtos.Book;
+using BookCatalog.API.Dtos.Common;
 using BookCatalog.API.Services;
 using BookCatalog.API.Services.Interfaces;
 using Microsoft.AspNetCore.Http;
@@ -18,10 +20,10 @@ public class BookController : AppController
     }
 
     [HttpGet]
-    [ProducesResponseType(typeof(List<BookDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
+    [ProducesResponseType(typeof(PagedList<BookDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAll([FromQuery] BookFilterQueryParameters paramters, CancellationToken cancellationToken)
     {
-        var result = await _bookService.GetAllAsync(cancellationToken);
+        var result = await _bookService.GetAllAsync(paramters, cancellationToken);
 
         return Ok(result.Data);
     }

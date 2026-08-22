@@ -1,8 +1,12 @@
-﻿using BookCatalog.API.Dtos;
+using BookCatalog.API.Dtos;
+using BookCatalog.API.Dtos.Book;
+using BookCatalog.API.Dtos.Common;
+using BookCatalog.API.ExtensionMethods;
 using BookCatalog.API.ExtensionMethods.Mapping;
 using BookCatalog.API.Repositories.Interfaces;
 using BookCatalog.API.Services.Interfaces;
-using BookCatalog.API.Utilities;
+using BookCatalog.API.Utilities.Normalizers;
+using BookCatalog.API.Utilities.Results;
 
 namespace BookCatalog.API.Services;
 
@@ -17,11 +21,12 @@ public class BookService : IBookService
         _timeProvider = timeProvider;
         _logger = logger;
     }
-    public Task<Result<List<BookDto>>> GetAllAsync(CancellationToken ct = default)
+    public Task<Result<PagedList<BookDto>>> GetAllAsync(BookFilterQueryParameters paramters, CancellationToken ct = default)
     {
         _logger.LogDebug("Retrieving all books.");
 
         var books = _bookRepository.GetAll()
+                                   .ApplyFilters(paramters)
                                    .Select(b => new BookDto()
                                    {
                                        Id = b.Id,
@@ -33,10 +38,10 @@ public class BookService : IBookService
                                        Price = b.Price,
                                        PublicationYear = b.PublicationYear
                                    })
-                                   .ToList();
-        _logger.LogDebug("Retrieved {Count} books", books.Count);
+                                   .ToPagedList(paramters);
+        _logger.LogDebug("Retrieved {Count} books", books.Items.Count());
 
-        return Task.FromResult(Result<List<BookDto>>.Ok(books));
+        return Task.FromResult(Result<PagedList<BookDto>>.Ok(books));
     }
 
     public async Task<Result<BookDto>> GetByIdAsync(int id, CancellationToken ct = default)
