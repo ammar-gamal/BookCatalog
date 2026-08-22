@@ -1,6 +1,7 @@
 ﻿using BookCatalog.API.Dtos;
+using BookCatalog.API.Dtos.Book;
 using BookCatalog.API.Entities;
-using BookCatalog.API.Utilities;
+using BookCatalog.API.Utilities.Normalizers;
 
 namespace BookCatalog.API.ExtensionMethods.Mapping;
 

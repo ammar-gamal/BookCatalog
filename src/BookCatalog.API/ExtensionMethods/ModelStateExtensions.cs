@@ -1,4 +1,4 @@
-﻿using BookCatalog.API.Utilities;
+﻿using BookCatalog.API.Utilities.Results;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace BookCatalog.API.ExtensionMethods;

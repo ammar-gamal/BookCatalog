@@ -1,4 +1,4 @@
-﻿namespace BookCatalog.API.Utilities;
+﻿namespace BookCatalog.API.Utilities.Normalizers;
 
 public static class IsbnNormalizer
 {
