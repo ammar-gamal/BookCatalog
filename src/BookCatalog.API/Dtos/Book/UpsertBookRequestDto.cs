@@ -1,7 +1,7 @@
-﻿using BookCatalog.API.Entities.Enums;
+using BookCatalog.API.Entities.Enums;
 using System.ComponentModel.DataAnnotations;
 
-namespace BookCatalog.API.Dtos.Abstractions;
+namespace BookCatalog.API.Dtos.Book;
 
 public abstract record UpsertBookRequestDto
 {

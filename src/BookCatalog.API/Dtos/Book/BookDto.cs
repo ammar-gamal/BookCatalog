@@ -1,6 +1,6 @@
-﻿using BookCatalog.API.Entities.Enums;
+using BookCatalog.API.Entities.Enums;
 
-namespace BookCatalog.API.Dtos;
+namespace BookCatalog.API.Dtos.Book;
 
 public record BookDto
 {
