@@ -1,4 +1,4 @@
-﻿namespace BookCatalog.API.Utilities;
+﻿namespace BookCatalog.API.Utilities.Results;
 
 public class Error
 {
@@ -44,4 +44,3 @@ public class Error
       new(ErrorType.Validation, errorTitle: "Validation Errors", errorDetail: detail, validationErrors: validationErrors);
 
 }
-public record ValidationError(string PropertyName, string ErrorMessage);
