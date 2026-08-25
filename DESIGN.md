@@ -20,21 +20,26 @@ A `Book` has: `Id`, `Title`, `Author`, `Isbn`, `NormalizedIsbn`, `Price`, `Descr
 
 ### How the Solution Is Structured
 
-The project lives in a single ASP.NET Core project (`BookCatalog.API`), but organized in deliberate layers:
+The solution is divided into a `src/` directory for the main application and a `tests/` directory for testing projects:
 
-```
-BookCatalog.API/
-├── Controllers/       → HTTP boundary (thin, no business logic)
-├── Services/          → Business rules
-├── Repositories/      → Data access abstraction (interfaces + in-memory impl)
-├── Dtos/              → What the API receives and returns
-├── Entities/          → Domain models (internal to the app)
-├── Utilities/         → Result pattern, Error types, ISBN normalizer
-├── Exceptions/        → Global exception handler
-└── ExtensionMethods/  → Mapping and ModelState helpers
+```text
+BookCatalog/
+├── src/
+│   └── BookCatalog.API/
+│       ├── Controllers/       → HTTP boundary (thin, no business logic)
+│       ├── Services/          → Business rules
+│       ├── Repositories/      → Data access abstraction (interfaces + in-memory impl)
+│       ├── Dtos/              → What the API receives and returns
+│       ├── Entities/          → Domain models (internal to the app)
+│       ├── Utilities/         → Result pattern, Error types, ISBN normalizer
+│       ├── Exceptions/        → Global exception handler
+│       └── ExtensionMethods/  → Mapping and ModelState helpers
+└── tests/
+    ├── BookCatalog.UnitTests/  → Unit tests for services and extensions
+    └── BookCatalog.IntegrationTests/ → Integration tests
 ```
 
-Every layer communicates through **interfaces**, not concrete types. The controllers only know `IBookService`. The services only know `IBookRepository`. This means the data layer can be swapped (in-memory → EF Core / SQL) without touching services or controllers.
+Every layer in the API communicates through **interfaces**, not concrete types. The controllers only know `IBookService`. The services only know `IBookRepository`. This means the data layer can be swapped (in-memory → EF Core / SQL) without touching services or controllers.
 
 ---
 
@@ -42,13 +47,23 @@ Every layer communicates through **interfaces**, not concrete types. The control
 
 #### 1. Layered Single-Project Architecture over Clean Architecture Overengineering
 
-I was initially considering using Clean Architecture with CQRS (an approach I used in a previous project, [Chattr](https://github.com/ammar-gamal/Chattr)), but i felt this would be overengineering and introduce unnecessary complexity.
+I was initially considering using Clean Architecture with CQRS (an approach I used in a previous project, [Chattr](https://github.com/ammar-gamal/Chattr)), but I felt this would be overengineering and introduce unnecessary complexity.
 
 Instead, I chose a middle ground: a layered single project architecture so that migrating to full Clean Architecture later (if complexity grows) is straightforward. The interfaces are already in place, and the layers are already separated. If I ever need to extract `BookCatalog.Domain` or `BookCatalog.Infrastructure` into their own class libraries, the code is ready for it.
 
-The core principle I kept from Clean Architecture is that business logic must not know or care about infrastructure concerns. Services just communicate through defined interfaces (`IBookRepository`, `IBaseRepository<T>`), ensuring zero coupling between business logic and infrastructure details.
+The core principle I kept from Clean Architecture is keeping business services free from direct infrastructure code. To achieve this, I strictly adhered to the **Dependency Inversion Principle (DIP)**. High-level modules (like `Controllers` and `Services`) do not depend on low-level modules (like concrete data access implementations). Instead, both depend on abstractions.
 
-This approach also gave me an advantage which is keeping boundaries organized via namespaces and folders within a single project delivers most of the benefits of separation of concerns and testability, while avoiding the overhead of managing multiple project files and references.
+By abstracting data access through interfaces like `IBookRepository`, the application achieves loose coupling for dependency injection and straightforward unit testing. This is what will allow us to swap the in-memory storage for a real database later without modifying a single line of business logic.
+
+This approach also gave me the advantage of keeping boundaries organized via namespaces and folders within a single project. It delivers most of the benefits of separation of concerns and testability, while avoiding the overhead of managing multiple project files and references.
+
+The layers are split with a strict downward dependency flow (`Controllers -> Services -> Repositories`):
+
+1. **Controllers (API Layer):** Extremely thin. They only handle HTTP requests/responses, routing, and map `Result` objects to HTTP status codes. No business logic lives here.
+2. **Services (Business Logic Layer):** Contains all the core business rules (like checking for duplicate ISBNs) and coordinates between input DTOs and Data Access.
+3. **Repositories (Data Access Layer):** Handles the actual storage and retrieval of entities.
+
+As the dependencies strictly flow downwards, each layer can be tested in isolation. For instance, the Service layer can be tested with mocked data repositories without needing a live database connection.
 
 #### 2. Generic Repository Pattern (`IBaseRepository<TEntity>`)
 
@@ -60,13 +75,25 @@ The reasoning:
 - **DRY & Eliminating Boilerplate**: Standard CRUD operations (`AddAsync`, `GetByIdAsync`, `GetAll`, `UpdateAsync`, `DeleteAsync`) are identical for any entity inheriting from `Entity`. Implementing them once in a generic base avoids alot of duplications.
 - **Focused Specific Repositories**: Specific interfaces like `IBookRepository` inherit the standard operations from `IBaseRepository` and only focus on declaring domain-specific queries (such as `GetBookIdByIsbnAsync`).
 
-#### 3. `ConcurrentDictionary` for in-memory storage
+#### 3. How I decided what to test and what not to test
+
+**What I tested (Unit Testing):**
+The core focus of my unit tests is the **Service Layer** (business logic). Because the architecture strictly adheres to the Dependency Inversion Principle, So i can easily mock dependencies (like `IBookRepository`) and test the business logic in complete isolation. This ensures that any future refactoring won't accidentally introduce unexpected bugs. I also tested pure utility classes and extension methods, as they have no external dependencies.
+
+**What I did NOT test (at the unit level):**
+I avoided writing unit tests for the **Repository Layer** (infrastructure code). Unit tests are meant to test specific units of logic independent of external dependencies. Testing the actual data source operations requires a live database, which falls under **Integration Testing**. Mocking the underlying data source to test a repository provides no real value, and testing it against a real database breaks the definition of an isolated unit test.
+
+#### 4. `TimeProvider` injected as a dependency
+
+Rather than calling `DateTime.UtcNow` directly, `TimeProvider.System` is injected. This makes time controllable in tests — a unit test can pass a fake `TimeProvider` that returns a fixed date, making publication-year validation tests deterministic.
+
+#### 5. `ConcurrentDictionary` for in-memory storage
 
 Because we are storing our data in memory so the repository is registered as a **Singleton** — one shared instance for the lifetime of the app, which means all HTTP requests hit the same instance. Using a plain `Dictionary<TKey,TValue>` here would introduce a race condition and become not thread-safe.
 
 `ConcurrentDictionary` handles concurrent reads and writes safely without requiring manual locks and ID generation is handled with `Interlocked.Increment`, which is also thread-safe.
 
-#### 4. Sequential integer `Id` instead of `Guid`
+#### 6. Sequential integer `Id` instead of `Guid`
 
 Entities use an integer `Id` (`int`) instead of a `Guid`.
 
@@ -77,11 +104,11 @@ The reasoning is proactive database design for Week 3:
 - Integer IDs are significantly smaller (4 bytes vs. 16 bytes for a Guid). This reduces the size of the index, allowing more entries to fit per page and improving the read/write performance.
 - Integer IDs produce cleaner, more human-readable REST URLs (e.g., `/api/book/1` vs `/api/book/3fa85f64-5717-4562-b3fc-2c963f66afa6`).
 
-### 5. Storing both Isbn and NormalizedIsbn
+#### 7. Storing both Isbn and NormalizedIsbn
 
 ISBNs can be submitted in different formats. The NormalizedIsbn field (while is uppercase version of Isbn) is what uniqueness checks run against. The original Isbn is preserved to return back to the client exactly as they submitted it.
 
-#### 6. Returning `IQueryable<T>` from Repository
+#### 8. Returning `IQueryable<T>` from Repository
 
 The repository exposes `IQueryable<T>` via `GetAll()` instead of returning a plain `List<T>` or `IEnumerable<T>`. This choice is meant to improve performance once we move to database.
 
@@ -91,11 +118,7 @@ The reasoning:
 - **Deffered Exceution**: The query is not executed immediately. The service layer can compose additional operations such as filtering, sorting, and pagination (.Where(), .OrderBy(), .Skip(), .Take()) before the query is finally executed.
 - **Seamless Database Migration**: When transitioning to EF Core in Week 3, `IQueryable` translates LINQ expressions directly into efficient SQL queries evaluated on the database server.
 
-#### 7. `TimeProvider` injected as a dependency
-
-Rather than calling `DateTime.UtcNow` directly, `TimeProvider.System` is injected. This makes time controllable in tests — a unit test can pass a fake `TimeProvider` that returns a fixed date, making publication-year validation tests deterministic.
-
-#### 8. `Result<T>` pattern instead of exceptions
+#### 9. `Result<T>` pattern instead of exceptions
 
 Services return `Result<T>` objects rather than throwing exceptions for business-level failures like "book not found" or "ISBN already exists".
 
@@ -105,23 +128,27 @@ With `Result<T>`, the controller always knows whether the operation succeeded or
 
 Unhandled, truly unexpected exceptions (bugs, infrastructure failures) are caught by `GlobalExceptionHandler`, which logs them as critical and returns a safe `500 Internal Server Error` response — without leaking stack traces to the client.
 
-#### 9. Validation in two places — for different reasons
+#### 10. Validation in two places — for different reasons
 
 - **DataAnnotations on DTOs** (`[Required]`, `[MaxLength]`, `[Range]`) catch structurally invalid requests before they ever reach the service layer. ASP.NET Core's `[ApiController]` attribute rejects these automatically with a `400 Bad Request`.
 - **Business rules in the service** (ISBN uniqueness, publication date must be in the past) live in `BookService`.
 
-#### 10. `AppController` base class
+#### 11. `AppController` base class
 
 All controllers inherit `AppController`, which provides a single `HandleError(Result result)` method. This method translates an `Error` type into the correct `ProblemDetails` HTTP response (`404`, `409`, `400`, etc.). Without this, every controller action would repeat the same switch statement.
 
-#### 11. Consistent error response format
+#### 12. Consistent error response format
 
 All errors — validation errors, not-found, conflicts, unhandled exceptions — return `ProblemDetails` (RFC 7807). Every error response includes `requestId` and `traceId` so errors can be correlated with logs.
 
 ---
 
-### What I Would Improve With More Time
+### What I Would Improve With More Time (Done)
 
 **Pagination on GET /books.** Right now the endpoint returns every book in memory. As the catalog grows, this becomes a problem. Adding `page` and `pageSize` query parameters with a total count in the response would more suitable rather than returning all books.
 
 ---
+
+### What was painful to change from week 1, and what that tells you about my original design
+
+Honestly, I didn’t have to make any significant changes when I started unit testing in Week 2. From the beginning, I followed a layered architecture and used the Repository Pattern, which kept my business logic separated from the data access layer
