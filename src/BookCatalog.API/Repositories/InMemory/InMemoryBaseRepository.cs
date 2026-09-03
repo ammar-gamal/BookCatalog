@@ -1,10 +1,10 @@
-﻿using BookCatalog.API.Repositories.Interfaces;
-using BookCatalog.Domain.Abstractions;
+﻿using BookCatalog.API.Entities.Abstractions;
+using BookCatalog.API.Repositories.Interfaces;
 using System.Collections.Concurrent;
 
 namespace BookCatalog.API.Repositories.InMemory;
 
-public class InMemoryBaseRepository<TEntity> : IBaseRepository<TEntity> where TEntity : Entity
+public class InMemoryBaseRepository<TEntity> : IBaseRepository<TEntity> where TEntity : BaseEntity
 {
     private readonly ConcurrentDictionary<int, TEntity> _entities = new();
     private int _id = 0;
@@ -15,10 +15,16 @@ public class InMemoryBaseRepository<TEntity> : IBaseRepository<TEntity> where TE
         return Task.CompletedTask;
     }
 
-    public virtual Task DeleteAsync(int id, CancellationToken ct = default)
+    public virtual Task DeleteAsync(TEntity entity, CancellationToken ct = default)
     {
-        _entities.TryRemove(id, out _);
+        _entities.TryRemove(entity.Id, out _);
         return Task.CompletedTask;
+    }
+
+    public Task<bool> ExistsAsync(int id, CancellationToken ct = default)
+    {
+        var isExists = _entities.Any(e => e.Key == id);
+        return Task.FromResult(isExists);
     }
 
     public virtual IQueryable<TEntity> GetAll()

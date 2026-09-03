@@ -1,12 +1,13 @@
-﻿using BookCatalog.Domain.Abstractions;
+﻿using BookCatalog.API.Entities.Abstractions;
 
 namespace BookCatalog.API.Repositories.Interfaces;
 
-public interface IBaseRepository<T> where T : Entity
+public interface IBaseRepository<TEntity> where TEntity : BaseEntity
 {
-    Task<T?> GetByIdAsync(int id, CancellationToken ct = default);
-    Task AddAsync(T entity, CancellationToken ct = default);
-    Task UpdateAsync(T entity, CancellationToken ct = default);
-    Task DeleteAsync(int id, CancellationToken ct = default);
-    IQueryable<T> GetAll();
+    Task<TEntity?> GetByIdAsync(int id, CancellationToken ct = default);
+    Task AddAsync(TEntity entity, CancellationToken ct = default);
+    Task UpdateAsync(TEntity entity, CancellationToken ct = default);
+    Task DeleteAsync(TEntity entity, CancellationToken ct = default);
+    Task<bool> ExistsAsync(int id, CancellationToken ct = default);
+    IQueryable<TEntity> GetAll();
 }

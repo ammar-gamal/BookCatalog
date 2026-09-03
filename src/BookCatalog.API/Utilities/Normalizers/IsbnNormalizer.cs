@@ -4,6 +4,10 @@ public static class IsbnNormalizer
 {
     public static string Normalize(string isbn)
     {
-        return isbn.Trim().ToUpperInvariant();
+        return isbn
+             .Replace("-", "")
+             .Replace(" ", "")
+             .Trim()
+             .ToUpperInvariant();
     }
 }
