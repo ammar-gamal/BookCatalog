@@ -4,7 +4,6 @@ using BookCatalog.API.Entities.Enums;
 using BookCatalog.API.ExtensionMethods.Mapping;
 using BookCatalog.API.Utilities.Normalizers;
 using FluentAssertions;
-using Xunit;
 
 namespace BookCatalog.UnitTests.ExtensionMethods;
 
@@ -17,26 +16,26 @@ public class BookMappingExtensionsTests
         var dto = new CreateBookRequestDto
         {
             Title = "Book Title1",
-            Author = "Book Author",
+            AuthorId = 20,
             Isbn = "  2222-2222  ",
             Price = 14.99m,
             Genre = BookGenre.Fiction,
-            PublicationYear = new DateOnly(2000, 2, 2),
+            PublicationDate = new DateOnly(2000, 2, 2),
             Description = "Book Description"
         };
 
         // Act
-        var result = dto.ToEntity();
+        var result = dto.ToEntity(IsbnNormalizer.Normalize(dto.Isbn));
 
         // Assert
         result.Should().NotBeNull();
         result.Title.Should().Be(dto.Title);
-        result.Author.Should().Be(dto.Author);
+        result.AuthorId.Should().Be(dto.AuthorId);
         result.Isbn.Should().Be(dto.Isbn);
         result.NormalizedIsbn.Should().Be(IsbnNormalizer.Normalize(dto.Isbn));
         result.Price.Should().Be(dto.Price);
         result.Genre.Should().Be(dto.Genre);
-        result.PublicationYear.Should().Be(dto.PublicationYear);
+        result.PublicationDate.Should().Be(dto.PublicationDate);
         result.Description.Should().Be(dto.Description);
     }
 
@@ -48,12 +47,11 @@ public class BookMappingExtensionsTests
         {
             Id = 1,
             Title = "Book Title1",
-            Author = "Book Author",
+            AuthorId = 25,
             Isbn = "2222-2222",
-            NormalizedIsbn = "2222-2222",
             Price = 9.99m,
             Genre = BookGenre.Fiction,
-            PublicationYear = new DateOnly(2000, 2, 2),
+            PublicationDate = new DateOnly(2000, 2, 2),
             Description = "Book Description"
         };
 
@@ -64,11 +62,11 @@ public class BookMappingExtensionsTests
         result.Should().NotBeNull();
         result.Id.Should().Be(entity.Id);
         result.Title.Should().Be(entity.Title);
-        result.Author.Should().Be(entity.Author);
+        result.AuthorId.Should().Be(entity.AuthorId);
         result.Isbn.Should().Be(entity.Isbn);
         result.Price.Should().Be(entity.Price);
         result.Genre.Should().Be(entity.Genre);
-        result.PublicationYear.Should().Be(entity.PublicationYear);
+        result.PublicationDate.Should().Be(entity.PublicationDate);
         result.Description.Should().Be(entity.Description);
     }
 }

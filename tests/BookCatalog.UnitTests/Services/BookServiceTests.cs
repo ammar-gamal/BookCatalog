@@ -8,6 +8,7 @@ using BookCatalog.API.Utilities.Results;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
+using MockQueryable;
 using Moq;
 
 namespace BookCatalog.UnitTests.Services;
@@ -16,6 +17,8 @@ public class BookServiceTests
 {
     private readonly Mock<IBookRepository> _bookRepositoryMock;
     private readonly Mock<ILogger<BookService>> _loggerMock;
+    private readonly Mock<IBaseRepository<Author>> _authorRepositoryMock;
+    private readonly Mock<ILoanRepository> _loanRepositoryMock;
     private readonly FakeTimeProvider _timeProvider;
     private readonly BookService _sut;
     private readonly DateTime _fixedUtcNow = new(2026, 8, 20, 12, 0, 0);
@@ -24,13 +27,17 @@ public class BookServiceTests
     {
         _bookRepositoryMock = new Mock<IBookRepository>();
         _loggerMock = new Mock<ILogger<BookService>>();
+        _authorRepositoryMock = new Mock<IBaseRepository<Author>>();
+        _loanRepositoryMock = new Mock<ILoanRepository>();
         _timeProvider = new FakeTimeProvider();
         _timeProvider.SetUtcNow(_fixedUtcNow);
 
         _sut = new BookService(
             _bookRepositoryMock.Object,
             _timeProvider,
-            _loggerMock.Object);
+            _loggerMock.Object,
+            _authorRepositoryMock.Object,
+            _loanRepositoryMock.Object);
     }
 
     #region CreateAsync Tests
@@ -40,11 +47,11 @@ public class BookServiceTests
     {
         // Arrange
         var request = CreateValidCreateBookRequestDto();
-        int existingBookId = 99;
+        var normalizedIsbn = IsbnNormalizer.Normalize(request.Isbn);
 
         _bookRepositoryMock
-            .Setup(r => r.GetBookIdByIsbnAsync(request.Isbn, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(existingBookId);
+            .Setup(r => r.IsIsbnTakenAsync(normalizedIsbn, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         // Act
         var result = await _sut.CreateAsync(request, TestContext.Current.CancellationToken);
@@ -58,20 +65,50 @@ public class BookServiceTests
             Times.Never);
     }
 
+    [Fact]
+    public async Task CreateAsync_WhenAuthorNotExists_ReturnsNotFoundError()
+    {
+        // Arrange
+        var request = CreateValidCreateBookRequestDto();
+
+        _bookRepositoryMock
+            .Setup(r => r.IsIsbnTakenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        _authorRepositoryMock
+            .Setup(r => r.ExistsAsync(request.AuthorId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        // Act
+        var result = await _sut.CreateAsync(request, TestContext.Current.CancellationToken);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.Error.Type.Should().Be(ErrorType.NotFound);
+
+        _bookRepositoryMock.Verify(
+            r => r.AddAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Theory]
-    [InlineData(0)] // Today
     [InlineData(10)] // Future
-    public async Task CreateAsync_WhenPublicationYearIsTodayOrFuture_ReturnsValidationError(int numberOfDays)
+    [InlineData(1)] // Future
+    public async Task CreateAsync_WhenPublicationDateOnTheFuture_ReturnsValidationError(int numberOfDays)
     {
         // Arrange
         var request = CreateValidCreateBookRequestDto() with
         {
-            PublicationYear = DateOnly.FromDateTime(_fixedUtcNow.AddDays(numberOfDays))
+            PublicationDate = DateOnly.FromDateTime(_fixedUtcNow.AddDays(numberOfDays))
         };
 
         _bookRepositoryMock
-            .Setup(r => r.GetBookIdByIsbnAsync(request.Isbn, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((int?)null);
+            .Setup(r => r.IsIsbnTakenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        _authorRepositoryMock
+            .Setup(r => r.ExistsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         // Act
         var result = await _sut.CreateAsync(request, TestContext.Current.CancellationToken);
@@ -93,8 +130,12 @@ public class BookServiceTests
         int expectedId = 1;
 
         _bookRepositoryMock
-            .Setup(r => r.GetBookIdByIsbnAsync(request.Isbn, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((int?)null);
+            .Setup(r => r.IsIsbnTakenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        _authorRepositoryMock
+            .Setup(r => r.ExistsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         _bookRepositoryMock
             .Setup(r => r.AddAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()))
@@ -112,12 +153,12 @@ public class BookServiceTests
         _bookRepositoryMock.Verify(
             r => r.AddAsync(It.Is<Book>(b =>
                 b.Title == request.Title &&
-                b.Author == request.Author &&
+                b.AuthorId == request.AuthorId &&
                 b.Isbn == request.Isbn &&
                 b.NormalizedIsbn == IsbnNormalizer.Normalize(request.Isbn) &&
                 b.Price == request.Price &&
                 b.Genre == request.Genre &&
-                b.PublicationYear == request.PublicationYear &&
+                b.PublicationDate == request.PublicationDate &&
                 b.Description == request.Description),
             It.IsAny<CancellationToken>()),
             Times.Once);
@@ -151,21 +192,24 @@ public class BookServiceTests
     }
 
     [Fact]
-    public async Task UpdateAsync_WhenIsbnBelongsToDifferentBook_ReturnsConflictError()
+    public async Task UpdateAsync_WhenNewIsbnBelongsToDifferentBook_ReturnsConflictError()
     {
         // Arrange
         int bookId = 1;
-        int conflictingBookId = 999;
-        var request = CreateValidUpdateBookRequestDto();
-        var existingBook = CreateExistingBookEntity(bookId);
+        var request = CreateValidUpdateBookRequestDto() with { Isbn = "888-888-888" };
+        var targetBook = CreateExistingBookEntity(bookId, isbn: "999-999-999");
 
         _bookRepositoryMock
             .Setup(r => r.GetByIdAsync(bookId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(existingBook);
+            .ReturnsAsync(targetBook);
+
+        _authorRepositoryMock
+            .Setup(x => x.ExistsAsync(request.AuthorId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         _bookRepositoryMock
-            .Setup(r => r.GetBookIdByIsbnAsync(request.Isbn, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(conflictingBookId);
+            .Setup(r => r.IsIsbnTakenAsync(IsbnNormalizer.Normalize(request.Isbn), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         // Act
         var result = await _sut.UpdateAsync(bookId, request, TestContext.Current.CancellationToken);
@@ -179,26 +223,64 @@ public class BookServiceTests
             Times.Never);
     }
 
-    [Theory]
-    [InlineData(0)] // Today
-    [InlineData(10)] // Future
-    public async Task UpdateAsync_WhenPublicationYearIsTodayOrFuture_ReturnsValidationError(int numberOfDays)
+    [Fact]
+    public async Task UpdateAsync_WhenNewAuthorNotExists_ReturnsNotFoundError()
     {
         // Arrange
         int bookId = 1;
         var request = CreateValidUpdateBookRequestDto() with
         {
-            PublicationYear = DateOnly.FromDateTime(_fixedUtcNow.AddDays(numberOfDays))
+            AuthorId = 999
         };
-        var existingBook = CreateExistingBookEntity(bookId);
+        var existingBook = CreateExistingBookEntity(bookId, authorId: 9);
 
         _bookRepositoryMock
             .Setup(r => r.GetByIdAsync(bookId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingBook);
 
+        _authorRepositoryMock
+            .Setup(x => x.ExistsAsync(request.AuthorId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        // Act
+        var result = await _sut.UpdateAsync(bookId, request, TestContext.Current.CancellationToken);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.Error.Type.Should().Be(ErrorType.NotFound);
+
+        _authorRepositoryMock.Verify(
+            r => r.ExistsAsync(request.AuthorId, It.IsAny<CancellationToken>()),
+            Times.Once);
+        _bookRepositoryMock.Verify(
+            r => r.UpdateAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(10)] // Future
+    [InlineData(1)] // Future
+    public async Task UpdateAsync_WhenPublicationDateOnTheFuture_ReturnsValidationError(int numberOfDays)
+    {
+        // Arrange
+        int bookId = 1;
+        var request = CreateValidUpdateBookRequestDto() with
+        {
+            PublicationDate = DateOnly.FromDateTime(_fixedUtcNow.AddDays(numberOfDays))
+        };
+        var existingBook = CreateExistingBookEntity(bookId);
+
         _bookRepositoryMock
-            .Setup(r => r.GetBookIdByIsbnAsync(request.Isbn, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(bookId);
+            .Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingBook);
+
+        _authorRepositoryMock
+            .Setup(x => x.ExistsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        _bookRepositoryMock
+            .Setup(r => r.IsIsbnTakenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         // Act
         var result = await _sut.UpdateAsync(bookId, request, TestContext.Current.CancellationToken);
@@ -211,7 +293,34 @@ public class BookServiceTests
             r => r.UpdateAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
+    [Fact]
+    public async Task UpdateAsync_WhenAuthorAndIsbnUnchanged_SkipsExistChecksAndSucceeds()
+    {
+        // Arrange
+        int bookId = 1;
+        var existingBook = CreateExistingBookEntity(bookId, authorId: 10, isbn: "9-9-9-9-9");
 
+        // Request uses exact same AuthorId and ISBN
+        var request = CreateValidUpdateBookRequestDto() with
+        {
+            AuthorId = 10,
+            Isbn = "9-9-9-9-9"
+        };
+
+        _bookRepositoryMock
+            .Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingBook);
+
+        // Act
+        var result = await _sut.UpdateAsync(bookId, request, TestContext.Current.CancellationToken);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+
+        _authorRepositoryMock.Verify(r => r.ExistsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        _bookRepositoryMock.Verify(r => r.IsIsbnTakenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _bookRepositoryMock.Verify(r => r.UpdateAsync(existingBook, It.IsAny<CancellationToken>()), Times.Once);
+    }
     [Fact]
     public async Task UpdateAsync_AllValid_UpdatesBookAndReturnsSuccessResult()
     {
@@ -221,16 +330,16 @@ public class BookServiceTests
         var existingBook = CreateExistingBookEntity(bookId);
 
         _bookRepositoryMock
-            .Setup(r => r.GetByIdAsync(bookId, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingBook);
 
-        _bookRepositoryMock
-            .Setup(r => r.GetBookIdByIsbnAsync(request.Isbn, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(bookId);
+        _authorRepositoryMock
+            .Setup(x => x.ExistsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         _bookRepositoryMock
-            .Setup(r => r.UpdateAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .Setup(r => r.IsIsbnTakenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
 
         // Act
         var result = await _sut.UpdateAsync(bookId, request, TestContext.Current.CancellationToken);
@@ -244,12 +353,12 @@ public class BookServiceTests
             r => r.UpdateAsync(It.Is<Book>(b =>
                 b.Id == bookId &&
                 b.Title == request.Title &&
-                b.Author == request.Author &&
+                b.AuthorId == request.AuthorId &&
                 b.Isbn == request.Isbn &&
                 b.NormalizedIsbn == IsbnNormalizer.Normalize(request.Isbn) &&
                 b.Price == request.Price &&
                 b.Genre == request.Genre &&
-                b.PublicationYear == request.PublicationYear &&
+                b.PublicationDate == request.PublicationDate &&
                 b.Description == request.Description),
             It.IsAny<CancellationToken>()),
             Times.Once);
@@ -276,8 +385,38 @@ public class BookServiceTests
         result.IsSuccess.Should().BeFalse();
         result.Error.Type.Should().Be(ErrorType.NotFound);
 
+        _loanRepositoryMock.Verify(
+            r => r.BookHasActiveLoanAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Never);
         _bookRepositoryMock.Verify(
-            r => r.DeleteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            r => r.DeleteAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenBookHasActiveLoan_ReturnsConflictError()
+    {
+        // Arrange
+        int bookId = 1;
+        var existingBook = CreateExistingBookEntity(bookId);
+
+        _bookRepositoryMock
+            .Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingBook);
+
+        _loanRepositoryMock
+            .Setup(r => r.BookHasActiveLoanAsync(bookId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        // Act
+        var result = await _sut.DeleteAsync(bookId, TestContext.Current.CancellationToken);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.Error.Type.Should().Be(ErrorType.Conflict);
+
+        _bookRepositoryMock.Verify(
+            r => r.DeleteAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -289,11 +428,15 @@ public class BookServiceTests
         var existingBook = CreateExistingBookEntity(bookId);
 
         _bookRepositoryMock
-            .Setup(r => r.GetByIdAsync(bookId, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(existingBook);
 
+        _loanRepositoryMock
+            .Setup(r => r.BookHasActiveLoanAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
         _bookRepositoryMock
-            .Setup(r => r.DeleteAsync(bookId, It.IsAny<CancellationToken>()))
+            .Setup(r => r.DeleteAsync(existingBook, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         // Act
@@ -303,7 +446,7 @@ public class BookServiceTests
         result.IsSuccess.Should().BeTrue();
 
         _bookRepositoryMock.Verify(
-            r => r.DeleteAsync(bookId, It.IsAny<CancellationToken>()),
+            r => r.DeleteAsync(existingBook, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -315,11 +458,12 @@ public class BookServiceTests
     public async Task GetByIdAsync_WhenBookDoesNotExist_ReturnsNotFoundError()
     {
         // Arrange
-        int nonExistentBookId = 42;
+        var books = new List<Book>();
 
         _bookRepositoryMock
-            .Setup(r => r.GetByIdAsync(nonExistentBookId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Book?)null);
+            .Setup(r => r.GetAll())
+            .Returns(books.BuildMock());
+        int nonExistentBookId = 999;
 
         // Act
         var result = await _sut.GetByIdAsync(nonExistentBookId, TestContext.Current.CancellationToken);
@@ -336,9 +480,14 @@ public class BookServiceTests
         int bookId = 1;
         var existingBook = CreateExistingBookEntity(bookId);
 
+        var books = new List<Book>
+        {
+            existingBook
+        };
+
         _bookRepositoryMock
-            .Setup(r => r.GetByIdAsync(bookId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(existingBook);
+            .Setup(r => r.GetAll())
+            .Returns(books.BuildMock());
 
         // Act
         var result = await _sut.GetByIdAsync(bookId, TestContext.Current.CancellationToken);
@@ -348,11 +497,11 @@ public class BookServiceTests
         result.Data.Should().NotBeNull();
         result.Data.Id.Should().Be(bookId);
         result.Data.Title.Should().Be(existingBook.Title);
-        result.Data.Author.Should().Be(existingBook.Author);
+        result.Data.AuthorId.Should().Be(existingBook.AuthorId);
         result.Data.Isbn.Should().Be(existingBook.Isbn);
         result.Data.Price.Should().Be(existingBook.Price);
         result.Data.Genre.Should().Be(existingBook.Genre);
-        result.Data.PublicationYear.Should().Be(existingBook.PublicationYear);
+        result.Data.PublicationDate.Should().Be(existingBook.PublicationDate);
         result.Data.Description.Should().Be(existingBook.Description);
     }
 
@@ -364,12 +513,12 @@ public class BookServiceTests
     public async Task GetAllAsync_WhenBooksExist_ReturnsCorrectlyMappedDtos()
     {
         // Arrange
-        var book1 = new Book() { Id = 1, Title = "how to become sw engineer at akvelon :)", Author = "Ammar Gamal", Isbn = "111", NormalizedIsbn = "111", Price = 30m, Genre = BookGenre.Science, PublicationYear = new DateOnly(2026, 8, 1) };
+        var book1 = new Book() { Id = 1, Title = "how to become sw engineer at akvelon :)", AuthorId = 1, Isbn = "111", NormalizedIsbn = "111", Price = 30m, Genre = BookGenre.Science, PublicationDate = new DateOnly(2026, 8, 1) };
         var books = new List<Book> { book1 };
 
         _bookRepositoryMock
             .Setup(r => r.GetAll())
-            .Returns(books.AsQueryable());
+            .Returns(books.BuildMock());
 
         // Act
         var result = await _sut.GetAllAsync(new(), TestContext.Current.CancellationToken);
@@ -379,13 +528,13 @@ public class BookServiceTests
         result.Data.Should().NotBeNull();
         var actualDto = result.Data.Items.Single();
         actualDto.Id.Should().Be(book1.Id);
-        actualDto.Author.Should().Be(book1.Author);
+        actualDto.AuthorId.Should().Be(book1.AuthorId);
         actualDto.Title.Should().Be(book1.Title);
         actualDto.Description.Should().Be(book1.Description);
         actualDto.Isbn.Should().Be(book1.Isbn);
         actualDto.Genre.Should().Be(book1.Genre);
         actualDto.Price.Should().Be(book1.Price);
-        actualDto.PublicationYear.Should().Be(book1.PublicationYear);
+        actualDto.PublicationDate.Should().Be(book1.PublicationDate);
 
     }
 
@@ -395,16 +544,16 @@ public class BookServiceTests
         // Arrange
         var books = new List<Book>
         {
-            new() { Id = 1, Title = "how to become sw engineer at akvelon :)", Author = "Ammar Gamal", Isbn = "111", NormalizedIsbn = "111", Price = 30m, Genre = BookGenre.Science, PublicationYear = new DateOnly(2026, 8, 1) },
-            new() { Id = 2, Title = "how to become intern at akvelon :)", Author = "Ammar Gamal", Isbn = "222", NormalizedIsbn = "222", Price = 40m, Genre = BookGenre.Science, PublicationYear = new DateOnly(2026, 8, 10) },
-            new() { Id = 3, Title = "how to pass sw interview at akvelon :)", Author = "Ammar Gamal", Isbn = "333", NormalizedIsbn = "333", Price = 20m, Genre = BookGenre.General, PublicationYear = new DateOnly(2026, 8, 20) },
-            new() { Id = 4, Title = "how to pass the probation period at akvelon :)", Author = "Ammar Gamal", Isbn = "444", NormalizedIsbn = "444", Price = 35m, Genre = BookGenre.Fiction, PublicationYear = new DateOnly(2026, 8, 21) }
+            new() { Id = 1, Title = "how to become sw engineer at akvelon :)", AuthorId = 1, Isbn = "111", NormalizedIsbn = "111", Price = 30m, Genre = BookGenre.Science, PublicationDate = new DateOnly(2026, 8, 1) },
+            new() { Id = 2, Title = "how to become intern at akvelon :)", AuthorId = 1, Isbn = "222", NormalizedIsbn = "222", Price = 40m, Genre = BookGenre.Science, PublicationDate = new DateOnly(2026, 8, 10) },
+            new() { Id = 3, Title = "how to pass sw interview at akvelon :)", AuthorId = 1, Isbn = "333", NormalizedIsbn = "333", Price = 20m, Genre = BookGenre.General, PublicationDate = new DateOnly(2026, 8, 20) },
+            new() { Id = 4, Title = "how to pass the probation period at akvelon :)", AuthorId = 1, Isbn = "444", NormalizedIsbn = "444", Price = 35m, Genre = BookGenre.Fiction, PublicationDate = new DateOnly(2026, 8, 21) }
 
         };
 
         _bookRepositoryMock
             .Setup(r => r.GetAll())
-            .Returns(books.AsQueryable());
+            .Returns(books.BuildMock());
 
         var parameters = new BookFilterQueryParameters
         {
@@ -433,12 +582,11 @@ public class BookServiceTests
         // Arrange
         var books = new List<Book>
         {
-            new() { Id = 1, Title = "how to become sw engineer at akvelon :)", Author = "Ammar Gamal", Isbn = "111", NormalizedIsbn = "111", Price = 30m, Genre = BookGenre.Science, PublicationYear = new DateOnly(2026, 8, 1) },
+            new() { Id = 1, Title = "how to become sw engineer at akvelon :)", AuthorId = 1, Isbn = "111", NormalizedIsbn = "111", Price = 30m, Genre = BookGenre.Science, PublicationDate = new DateOnly(2026, 8, 1) },
         };
-
         _bookRepositoryMock
             .Setup(r => r.GetAll())
-            .Returns(books.AsQueryable());
+            .Returns(books.BuildMock());
 
         var parameters = new BookFilterQueryParameters
         {
@@ -465,35 +613,35 @@ public class BookServiceTests
     private CreateBookRequestDto CreateValidCreateBookRequestDto() => new()
     {
         Title = ".NET 10",
-        Author = "Ammar Gamal",
+        AuthorId = 50,
         Isbn = "10-10-10",
         Price = 99.99m,
         Genre = BookGenre.Science,
-        PublicationYear = DateOnly.FromDateTime(_fixedUtcNow.AddDays(-10)),
+        PublicationDate = DateOnly.FromDateTime(_fixedUtcNow.AddDays(-10)),
         Description = "Intensive .NET"
     };
 
     private UpdateBookRequestDto CreateValidUpdateBookRequestDto() => new()
     {
         Title = ".NET 10 (2nd)",
-        Author = "Ammar Gamal",
+        AuthorId = 55,
         Isbn = "20-20-20",
         Price = 119.99m,
         Genre = BookGenre.Science,
-        PublicationYear = DateOnly.FromDateTime(_fixedUtcNow.AddDays(-5)),
+        PublicationDate = DateOnly.FromDateTime(_fixedUtcNow.AddDays(-5)),
         Description = "Updated Intensive .NET"
     };
 
-    private Book CreateExistingBookEntity(int id) => new()
+    private Book CreateExistingBookEntity(int id, int authorId = 10, string isbn = "12-3-4-5-789") => new()
     {
         Id = id,
         Title = "How to become SW at Akvelon in 2026",
-        Author = "Ammar Gamal",
-        Isbn = "ISBN",
-        NormalizedIsbn = "ISBN",
+        AuthorId = authorId,
+        Isbn = isbn,
+        NormalizedIsbn = IsbnNormalizer.Normalize(isbn),
         Price = 50.00m,
         Genre = BookGenre.General,
-        PublicationYear = DateOnly.FromDateTime(_fixedUtcNow.AddDays(-20)),
+        PublicationDate = DateOnly.FromDateTime(_fixedUtcNow.AddDays(-20)),
         Description = "Tips and Trick in interviews"
     };
 

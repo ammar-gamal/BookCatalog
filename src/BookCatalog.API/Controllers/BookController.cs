@@ -3,12 +3,11 @@ using BookCatalog.API.Dtos.Book;
 using BookCatalog.API.Dtos.Common;
 using BookCatalog.API.Services;
 using BookCatalog.API.Services.Interfaces;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BookCatalog.API.Controllers;
 
-[Route("api/[controller]")]
+[Route("api/books")]
 [ApiController]
 public class BookController : AppController
 {
@@ -41,6 +40,7 @@ public class BookController : AppController
 
     [HttpPost]
     [ProducesResponseType(typeof(BookDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Create([FromBody] CreateBookRequestDto request, CancellationToken cancellationToken)
@@ -69,6 +69,7 @@ public class BookController : AppController
     [HttpDelete("{id:int}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var result = await _bookService.DeleteAsync(id, cancellationToken);

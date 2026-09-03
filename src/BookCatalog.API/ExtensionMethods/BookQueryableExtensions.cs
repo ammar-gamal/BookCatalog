@@ -11,9 +11,9 @@ public static class BookQueryableExtensions
         if(filterQuery.Genre.HasValue)
             source = source.Where(t => t.Genre == filterQuery.Genre);
         if(filterQuery.PublicationYearFrom.HasValue)
-            source = source.Where(t => t.PublicationYear >= filterQuery.PublicationYearFrom.Value);
+            source = source.Where(t => t.PublicationDate >= filterQuery.PublicationYearFrom.Value);
         if(filterQuery.PublicationYearEnd.HasValue)
-            source = source.Where(t => t.PublicationYear <= filterQuery.PublicationYearEnd.Value);
+            source = source.Where(t => t.PublicationDate <= filterQuery.PublicationYearEnd.Value);
         if(filterQuery.PriceFrom.HasValue)
             source = source.Where(t => t.Price >= filterQuery.PriceFrom.Value);
         if(filterQuery.PriceEnd.HasValue)
@@ -26,8 +26,8 @@ public static class BookQueryableExtensions
                                                                 : source.OrderBy(t => t.Price),
             BookSortField.Genre => sortDir is SortDirection.Desc ? source.OrderByDescending(t => t.Genre)
                                                                 : source.OrderBy(t => t.Genre),
-            BookSortField.PublicationYear => sortDir is SortDirection.Desc ? source.OrderByDescending(t => t.PublicationYear)
-                                                                          : source.OrderBy(t => t.PublicationYear),
+            BookSortField.PublicationYear => sortDir is SortDirection.Desc ? source.OrderByDescending(t => t.PublicationDate)
+                                                                          : source.OrderBy(t => t.PublicationDate),
             _ => source.OrderBy(e => e.Id)
         };
 

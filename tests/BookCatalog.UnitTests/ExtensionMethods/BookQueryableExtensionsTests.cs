@@ -11,9 +11,9 @@ public class BookQueryableExtensionsTests
 {
     private readonly List<Book> _sampleBooks =
     [
-        new() { Id = 1, Title = "A", Author = "Author One", Genre = BookGenre.Science, Price = 10m, PublicationYear = new DateOnly(2010, 1, 1), Isbn = "1", NormalizedIsbn = "1" },
-        new() { Id = 3, Title = "C", Author = "Author Two", Genre = BookGenre.History, Price = 20m, PublicationYear = new DateOnly(2015, 1, 1), Isbn = "3", NormalizedIsbn = "3" },
-        new() { Id = 2, Title = "B", Author = "Author One", Genre = BookGenre.Fiction, Price = 30m, PublicationYear = new DateOnly(2020, 1, 1), Isbn = "2", NormalizedIsbn = "2" }
+        new() { Id = 1, Title = "A", AuthorId = 1, Genre = BookGenre.Science, Price = 10m, PublicationDate = new DateOnly(2010, 1, 1), Isbn = "1",NormalizedIsbn="1" },
+        new() { Id = 3, Title = "C", AuthorId = 3, Genre = BookGenre.History, Price = 20m, PublicationDate = new DateOnly(2015, 1, 1), Isbn = "3",NormalizedIsbn="3" },
+        new() { Id = 2, Title = "B", AuthorId = 2, Genre = BookGenre.Fiction, Price = 30m, PublicationDate = new DateOnly(2020, 1, 1), Isbn = "2",NormalizedIsbn="2" }
     ];
 
     [Fact]

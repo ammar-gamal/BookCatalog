@@ -1,7 +1,6 @@
 using BookCatalog.API.Dtos.Common;
 using BookCatalog.API.ExtensionMethods;
 using FluentAssertions;
-using Xunit;
 
 namespace BookCatalog.UnitTests.ExtensionMethods;
 

@@ -5,15 +5,11 @@ namespace BookCatalog.API.Dtos.Book;
 
 public abstract record UpsertBookRequestDto
 {
-    [Required]
-    [MaxLength(100)]
-    public string Author { get; init; } = null!;
+    public int AuthorId { get; init; }
 
-    [Required]
     [MaxLength(200)]
     public string Title { get; init; } = null!;
 
-    [Required]
     [MaxLength(20)]
     public string Isbn { get; init; } = null!;
 
@@ -25,5 +21,5 @@ public abstract record UpsertBookRequestDto
 
     public BookGenre Genre { get; init; }
 
-    public DateOnly PublicationYear { get; init; }
+    public DateOnly PublicationDate { get; init; }
 }
