@@ -1,0 +1,35 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Database: "Server=db,1433;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Akvelon123456789};Database=BookCatalog;TrustServerCertificate=True"
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-Akvelon123456789}"
+    ports:
+      - "${DB_PORT:-1433}:1433"
+    volumes:
+      - type: volume
+        source: mssql
+        target: /var/opt/mssql
+    healthcheck:
+      test: [ "CMD", "/opt/mssql-tools18/bin/sqlcmd", "-C", "-S", "localhost", "-U", "sa", "-P", "${MSSQL_SA_PASSWORD:-Akvelon123456789}", "-Q", "SELECT 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  mssql:
