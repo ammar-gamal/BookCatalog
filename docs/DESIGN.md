@@ -10,32 +10,41 @@ The system manages authors, books, book copies, user accounts, the full borrowin
 ## API Endpoints
 
 ### 1. Authors (`/api/authors`)
+
 | Method | Route | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/authors` | Get all authors (paginated) |
 | `GET` | `/api/authors/{id}` | Get a single author by ID |
 | `POST` | `/api/authors` | Create a new author |
+
 ### 2. Books (`/api/books`)
+
 | Method | Route | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/books` | Get books with pagination, filtering (by `Genre`, `Price` range, `PublicationDate` range), and sorting (by `Price`, `PublicationDate`, `Genre` in `Asc`/`Desc`) |
 | `GET` | `/api/books/{id}` | Get a single book by ID |
-| `POST` | `/api/books` | Create a new book  |
+| `POST` | `/api/books` | Create a new book |
 | `PUT` | `/api/books/{id}` | Update an existing book |
 | `DELETE` | `/api/books/{id}` | Delete a book |
+
 ### 3. Book Copies (`/api/book-copies`)
+
 | Method | Route | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/book-copies` | Get all book copies (paginated) |
 | `GET` | `/api/book-copies/{id}` | Get a single book copy by ID |
 | `POST` | `/api/book-copies` | Create a new copy for a book with a unique barcode |
+
 ### 4. Users (`/api/users`)
+
 | Method | Route | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/users` | Get all users (paginated) |
 | `GET` | `/api/users/{id}` | Get a user by ID |
 | `POST` | `/api/users` | Create a new user |
+
 ### 5. Loans (`/api/loans`)
+
 | Method | Route | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/loans` | Get all loans across the library (paginated) |
@@ -43,7 +52,7 @@ The system manages authors, books, book copies, user accounts, the full borrowin
 | `GET` | `/api/loans/users/{userId}` | Get borrowing history for a specific user (paginated) |
 | `GET` | `/api/loans/book-copies/{bookCopyId}` | Get loan history for a specific book copy (paginated) |
 | `GET` | `/api/loans/books/{bookId}` | Get all loans across all copies of a book (paginated) |
-| `POST` | `/api/loans` | Borrow a book copy  |
+| `POST` | `/api/loans` | Borrow a book copy |
 | `PATCH` | `/api/loans/{id}` | Return a borrowed book copy |
 
 ---
@@ -102,6 +111,7 @@ As the dependencies strictly flow downwards, each layer can be tested in isolati
 A generic base repository interface (`IBaseRepository<TEntity>`) and its implementations (`InMemoryBaseRepository<TEntity>` in Week 1–2, and `EFCoreBaseRepository<TEntity>` in Week 3) were introduced to handle standard data operations uniformly across all entities.
 
 The reasoning:
+
 - **Data Access Abstraction**: The repository provides an abstraction over storage and retrieval, keeping the service layer completely decoupled from underlying data-access technologies. This allowed swapping in-memory storage for EF Core / SQL Server with minimum changes to business logic (see Section 3 on `IQueryable<T>`).
 - **DRY & Eliminating Boilerplate**: Standard operations (`AddAsync`, `GetByIdAsync`, `GetAll`, `UpdateAsync`, `DeleteAsync`, and `ExistsAsync`) are identical for any entity inheriting from `BaseEntity`. Implementing them once in a generic base eliminates repetitive boilerplate.
 - **Focused Specific Repositories**: Specific interfaces like `IBookRepository` and `ILoanRepository` inherit all standard operations from `IBaseRepository` and focus exclusively on declaring domain-specific queries (such as `IsIsbnTakenAsync` or `BookHasActiveLoanAsync`).
@@ -109,32 +119,58 @@ The reasoning:
 
 ### 3. Returning `IQueryable<T>` from Repository (Pragmatism vs. Strict Abstraction) (Week 2/3)
 
-The generic repository exposes `IQueryable<T>` via `GetAll()` rather than returning a pre-materialized `IEnumerable<T>` or `List<T>`. 
+The generic repository exposes `IQueryable<T>` via `GetAll()` rather than returning a pre-materialized `IEnumerable<T>` or `List<T>`.
 
 This was an intentional architectural decision weighing **strict theoretical abstraction** against **real-world performance and maintainability**.
 
-#### Why I Chose `IQueryable<T>`: 
+#### Why I Chose `IQueryable<T>`
 
-1. **Deferred Execution & Database Evaluation**: 
+1. **Deferred Execution & Database Evaluation**:
    The query is not executed immediately in memory. The service layer can dynamically compose filters (`ApplyFilters`), multi-field sorting, and pagination (`ToPagedListAsync`) so that SQL Server evaluates everything in a single, optimized SQL query on the database server. With `IEnumerable<T>`, data would be materialized , pulling far more records into memory than needed.
-2. **Direct Projection to DTOs**: 
+2. **Direct Projection to DTOs**:
    The service layer projects directly into DTOs via `.Select(BookToDtoProjection)`. SQL Server only reads and transfers the exact columns needed, reducing network payload and memory allocation.
-3. **Preventing Repository Bloat**: 
+3. **Preventing Repository Bloat**:
    Without `IQueryable<T>`, the repository would require dozens of custom query methods (`GetByGenreAsync`, `GetByPriceRangeAsync`, `GetFilteredAsync`,`GetSortedAsync`,`GetFilteredAndSortedAsync`...etc) to support every combination of UI filters. `IQueryable<T>` keeps the repository interface minimal and DRY.
-4. **Pragmatism & YAGNI**: 
+4. **Pragmatism & YAGNI**:
    In real production systems, the underlying ORM/data source is rarely swapped. Over-abstracting the repository strictly to hide EF Core from the service layer would be a classic case of premature optimization (Which is the root of all evil. :D)
 
-#### The Trade-Offs (The Leaky Abstraction):
+#### The Trade-Offs (The Leaky Abstraction)
 
 - **EF Core Coupling**: Returning `IQueryable<T>` is technically a leaky abstraction because the service layer becomes aware of data-access concerns.
 - **Testing Complexity**: Unit testing queries requires mocking `IQueryable` async extensions, which I solved cleanly using the `MockQueryable.Moq` package.
 
-#### Conclusion:
+#### Conclusion
+
 While `IQueryable<T>` couples the service layer more tightly to EF Core query semantics, the benefits—query composition, dynamic filtering, server-side paging, and avoiding repository bloat outweigh the theoretical purity of a strict repository for this platform.
 
+### 4. Removing Auto-Save from Repositories — Exposing `SaveChangesAsync` Explicitly
 
+Previously, `AddAsync`, `UpdateAsync`, and `DeleteAsync` in `BaseRepository<TEntity>` each called `SaveChangesAsync` internally — every write committed to the database immediately on its own.
 
-### 4. How I decided what to test and what not to test (Week 2)
+This was fine when each service method performed a single write, but it breaks down as soon as two writes need to be atomic. Each write would commit independently, meaning a failure midway could leave the database in a partially updated, inconsistent state.
+
+**The fix:** `SaveChangesAsync(CancellationToken)` was added to `IBaseRepository<TEntity>` and its implementation in `BaseRepository<TEntity>`. Write methods no longer call it internally. Services call it explicitly once after all operations are staged in the EF Core change tracker:
+
+```csharp
+// Before — two independent commits if there were two writes:
+await _loanRepository.Delete(loan, ct);         // commits immediately
+await _bookCopyReposiory.Delete(copy, ct);  // commits immediately
+
+// After — one commit for both:
+_loanRepository.Delete(loan);
+_bookCopyRepository.Delete(copy);
+await _loanRepository.SaveChangesAsync(ct);       // single commit
+```
+
+`Update` and `Delete` also became synchronous (`void`) — they only register changes in the EF Core change tracker, which is a local, in-memory operation with no async work to do.
+
+**Why this approach over a separate `IUnitOfWork` interface:**
+
+The classic solution is to introduce a dedicated `IUnitOfWork` interface wrapping the `DbContext` and exposing `SaveChangesAsync`. The drawback is that every service that performs writes would need an additional constructor dependency (`IUnitOfWork`) injected alongside its repositories.
+
+Since all repositories in this app share the same scoped `AppDbContext`, calling `SaveChangesAsync` on *any one* of them commits all pending changes from all of them. Adding `SaveChangesAsync` to `IBaseRepository<TEntity>` achieves the same result with no new interfaces, no new DI registrations, and no extra constructor parameters in any service.
+
+### 5. How I decided what to test and what not to test (Week 2)
 
 **What I tested (Unit Testing):**
 The core focus of my unit tests is the **Service Layer** (business logic). Because the architecture strictly adheres to the Dependency Inversion Principle, So i can easily mock dependencies (like `IBookRepository`) and test the business logic in complete isolation. This ensures that any future refactoring won't accidentally introduce unexpected bugs. I also tested pure utility classes and extension methods, as they have no external dependencies.
@@ -142,12 +178,11 @@ The core focus of my unit tests is the **Service Layer** (business logic). Becau
 **What I did NOT test (at the unit level):**
 I avoided writing unit tests for the **Repository Layer** (infrastructure code). Unit tests are meant to test specific units of logic independent of external dependencies. Testing the actual data source operations requires a live database, which falls under **Integration Testing**. Mocking the underlying data source to test a repository provides no real value, and testing it against a real database breaks the definition of an isolated unit test.
 
-### 5. `TimeProvider` injected as a dependency
+### 6. `TimeProvider` injected as a dependency
 
 Rather than calling `DateTime.UtcNow` directly, `TimeProvider.System` is injected. This makes time controllable in tests — a unit test can pass a fake `TimeProvider` that returns a fixed date, making publication-year validation tests deterministic.
 
-
-### 6. Sequential integer `Id` instead of `Guid`
+### 7. Sequential integer `Id` instead of `Guid`
 
 Entities use an integer `Id` (`int`) instead of a `Guid`.
 
@@ -158,26 +193,26 @@ The reasoning is proactive database design for Week 3:
 - Integer IDs are significantly smaller (4 bytes vs. 16 bytes for a Guid). This reduces the size of the index, allowing more entries to fit per page and improving the read/write performance.
 - Integer IDs produce cleaner, more human-readable REST URLs (e.g., `/api/book/1` vs `/api/book/3fa85f64-5717-4562-b3fc-2c963f66afa6`).
 
-### 7. Storing both Isbn and NormalizedIsbn
+### 8. Storing both Isbn and NormalizedIsbn
 
-ISBNs can be submitted in various valid formats (e.g., with or without hyphens and spaces). The `NormalizedIsbn` field is generated via the `IsbnNormalizer` utility, which strips out hyphens and spaces, trims whitespace, and converts the string to uppercase. 
+ISBNs can be submitted in various valid formats (e.g., with or without hyphens and spaces). The `NormalizedIsbn` field is generated via the `IsbnNormalizer` utility, which strips out hyphens and spaces, trims whitespace, and converts the string to uppercase.
 This clean, normalized version is what the database uniqueness constraints and duplication checks run against, while the original `Isbn` is preserved to return back to the client exactly as they originally formatted it
 
-### 8. Manual DTO Mapping via Extension Methods 
+### 9. Manual DTO Mapping via Extension Methods
 
 Instead of relying on third-party mapping libraries like AutoMapper or Mapster, all object mapping between Domain Entities and DTOs is handled explicitly through custom C# extension methods (located in the `ExtensionMethods/Mapping/` folder).
 The reasoning behind this decision:
+
 - **Performance & Zero Overhead**: Manual mapping is the fastest possible way to map objects in .NET. It avoids the startup penalty of building configuration dictionaries and the runtime overhead of reflection or expression tree compilation used by mapping libraries.
 - **Compile-Time Safety & Refactoring**: When mapping is explicit, any change to an entity’s property name or type immediately breaks the build, alerting you to the issue. Implicit mapping libraries often hide these breakages until runtime.
 
-### 9. `ConcurrentDictionary` for in-memory storage
+### 10. `ConcurrentDictionary` for in-memory storage
 
 Because we are storing our data in memory so the repository is registered as a **Singleton** — one shared instance for the lifetime of the app, which means all HTTP requests hit the same instance. Using a plain `Dictionary<TKey,TValue>` here would introduce a race condition and become not thread-safe.
 
 `ConcurrentDictionary` handles concurrent reads and writes safely without requiring manual locks and ID generation is handled with `Interlocked.Increment`, which is also thread-safe.
 
-
-### 10. `Result<T>` pattern instead of exceptions
+### 11. `Result<T>` pattern instead of exceptions
 
 Services return `Result<T>` objects rather than throwing exceptions for business-level failures like "book not found" or "ISBN already exists".
 
@@ -187,19 +222,18 @@ With `Result<T>`, the controller always knows whether the operation succeeded or
 
 Unhandled, truly unexpected exceptions (bugs, infrastructure failures) are caught by `GlobalExceptionHandler`, which logs them as critical and returns a safe `500 Internal Server Error` response — without leaking stack traces to the client.
 
-### 11. Validation in two places — for different reasons
+### 12. Validation in two places — for different reasons
 
 - **DataAnnotations on DTOs** (`[Required]`, `[MaxLength]`, `[Range]`) catch structurally invalid requests before they ever reach the service layer. ASP.NET Core's `[ApiController]` attribute rejects these automatically with a `400 Bad Request`.
 - **Business rules in the service** (ISBN uniqueness, publication date must be in the past) live in `BookService`.
 
-### 12. `AppController` base class
+### 13. `AppController` base class
 
 All controllers inherit `AppController`, which provides a single `HandleError(Result result)` method. This method translates an `Error` type into the correct `ProblemDetails` HTTP response (`404`, `409`, `400`, etc.). Without this, every controller action would repeat the same switch statement.
 
-### 13. Consistent error response format
+### 14. Consistent error response format
 
 All errors — validation errors, not-found, conflicts, unhandled exceptions — return `ProblemDetails` (RFC 7807). Every error response includes `requestId` and `traceId` so errors can be correlated with logs.
-
 
 ---
 
@@ -208,6 +242,7 @@ All errors — validation errors, not-found, conflicts, unhandled exceptions —
 Honestly, I didn’t have to make any significant changes when I started unit testing in Week 2. From the beginning, I followed a layered architecture and used the Repository Pattern, which kept my business logic separated from the data access layer
 
 ---
+
 ## Week 3: Moving from In-Memory to a Relational Database with Entity Framework Core and Dockerization
 
 ### My Data Model and Why It Is Shaped This Way
@@ -259,15 +294,11 @@ The data model represents a library book catalog system. It is composed of five 
    - **Users**
      - **Unique index on `Email`:** Ensures that every `Email` is unique across all users.
 
-
-
 ### Which Database I Chose and Why
 
 I chose SQL Server because my entire stack is Microsoft — .NET 10, EF Core, and I'm planning to deploy on Azure. Microsoft builds EF Core and SQL Server together, so the provider is first-party with tight integration — migrations, tooling, and debugging are all well supported and documented.
 
 At the same time, EF Core keeps the application relatively database-agnostic. If I need to switch to another relational DBMS in the future, I can replace the SQL Server EF Core provider with the appropriate provider for the target database and update the database configuration and any database-specific code if necessary. This makes the migration easier without requiring major changes to the application's business logic or data-access abstractions.
-
-
 
 ### How Much of My Code Had to Change When I Replaced In-Memory Storage, and What That Says About Week 2
 
@@ -280,6 +311,7 @@ If we look strictly at the **storage mechanism swap** (moving from `ConcurrentDi
    - Instead of loading full entities from the database into the application, I added direct expression projections (`.Select(BookToDtoProjection)`) so queries translate efficiently to SQL instead of mapping in memory.
 
 #### The Rest of the Changes Were Domain/Business Changes, Not Storage Changes
+
 The remaining changes in `BookService` had nothing to do with EF Core replacing in-memory storage; they were new domain requirements:
 
 - **Relational Author (`AuthorId`):** Adding a foreign key check (`await _authorRepository.ExistsAsync(request.AuthorId)`).
@@ -296,20 +328,16 @@ This transition is **proof that my Week 2 architecture worked exactly as intende
 
 2. **The `IQueryable<T>` Decision in Week 2 Was Validated:** In Week 2, I chose to return `IQueryable<T>` from `GetAll()` instead of concrete collections like `List<T>`. When moving to EF Core, my LINQ expressions, filters (`ApplyFilters`), and projections (`.Select()`) seamlessly translated to SQL queries evaluated on the database server, without restructuring the service layer — though, as discussed above, this did lead me to change the service code to use EF Core async extension methods.
 
-
-
 ### Where I Expect Performance to Become a Problem First
- 1.  **Every paginated list performs two database queries**  
+
+ 1. **Every paginated list performs two database queries**  
     `ToPagedListAsync` always runs `CountAsync`, then a separate `Skip/Take` query. Also for deep pages  `SKIP`  becomes slower  because SQL Server must locate and discard earlier rows.
-    
- 2.   **Serialized round trips in write workflows**  
+
+ 2. **Serialized round trips in write workflows**  
     Most write operations perform multiple sequential existence checks (e.g., checking foreign key existence, checking barcode existence before insertion, ..etc) before saving. This primarily increases latency due to multiple round trips to the database and increases database connection usage.
 This could be mitigated by relying on database constraints instead of performing explicit existence checks. However, this approach requires handling database constraint violations and translating the resulting database exceptions into appropriate application-level errors.
 
-    
-###  What each meaningful line of my Dockerfile does
-
-
+### What each meaningful line of my Dockerfile does
 
 The `Dockerfile` employs a **multi-stage build** to keep the final production container small, secure, and fast to build:
 
@@ -339,7 +367,7 @@ RUN dotnet restore "./BookCatalog.API/BookCatalog.API.csproj"
 
 ```
 
->  **Layer Caching Optimization:** Copies *only* the project file first and runs `dotnet restore`. Docker caches this layer; unless dependencies in `.csproj` change, future builds skip package downloads entirely.
+> **Layer Caching Optimization:** Copies *only* the project file first and runs `dotnet restore`. Docker caches this layer; unless dependencies in `.csproj` change, future builds skip package downloads entirely.
 
 ```dockerfile
 
