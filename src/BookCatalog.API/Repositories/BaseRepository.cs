@@ -29,18 +29,20 @@ public class BaseRepository<TEntity> : IBaseRepository<TEntity> where TEntity : 
     public async Task AddAsync(TEntity entity, CancellationToken ct = default)
     {
         await _dbSet.AddAsync(entity, ct);
-        await _context.SaveChangesAsync(ct);
     }
 
-    public Task DeleteAsync(TEntity entity, CancellationToken ct = default)
+    public void Delete(TEntity entity)
     {
         _dbSet.Remove(entity);
-        return _context.SaveChangesAsync(ct);
     }
 
-    public Task UpdateAsync(TEntity entity, CancellationToken ct = default)
+    public void Update(TEntity entity)
     {
         _dbSet.Update(entity);
+    }
+
+    public Task SaveChangesAsync(CancellationToken ct = default)
+    {
         return _context.SaveChangesAsync(ct);
     }
 

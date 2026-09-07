@@ -63,6 +63,7 @@ public class UserService : IUserService
 
         var user = request.ToEntity();
         await _userRepository.AddAsync(user, ct);
+        await _userRepository.SaveChangesAsync(ct);
 
         _logger.LogInformation("Created User {UserId}.", user.Id);
 

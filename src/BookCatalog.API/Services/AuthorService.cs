@@ -1,4 +1,4 @@
-﻿using BookCatalog.API.Dtos.Author;
+using BookCatalog.API.Dtos.Author;
 using BookCatalog.API.Dtos.Common;
 using BookCatalog.API.Entities;
 using BookCatalog.API.ExtensionMethods;
@@ -54,6 +54,7 @@ public class AuthorService : IAuthorService
 
         var author = request.ToEntity();
         await _authorRepository.AddAsync(author, ct);
+        await _authorRepository.SaveChangesAsync(ct);
 
         _logger.LogInformation("Created Author {AuthorId}.", author.Id);
 

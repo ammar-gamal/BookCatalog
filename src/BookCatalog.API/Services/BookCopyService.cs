@@ -78,6 +78,7 @@ public class BookCopyService : IBookCopyService
 
         var copy = request.ToEntity();
         await _bookCopyRepository.AddAsync(copy, ct);
+        await _bookCopyRepository.SaveChangesAsync(ct);
 
         _logger.LogInformation("Created BookCopy {BookCopyId}.", copy.Id);
 

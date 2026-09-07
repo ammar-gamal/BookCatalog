@@ -185,6 +185,7 @@ public class LoanServiceTests
                 l.LoanDate == _fixedUtcNow),
             It.IsAny<CancellationToken>()),
             Times.Once);
+        _loanRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -209,7 +210,7 @@ public class LoanServiceTests
         result.Error.Type.Should().Be(ErrorType.NotFound);
 
         _loanRepositoryMock.Verify(
-            r => r.UpdateAsync(It.IsAny<Loan>(), It.IsAny<CancellationToken>()),
+            r => r.Update(It.IsAny<Loan>()),
             Times.Never);
     }
 
@@ -240,7 +241,7 @@ public class LoanServiceTests
         result.Error.Type.Should().Be(ErrorType.Conflict);
 
         _loanRepositoryMock.Verify(
-            r => r.UpdateAsync(It.IsAny<Loan>(), It.IsAny<CancellationToken>()),
+            r => r.Update(It.IsAny<Loan>()),
             Times.Never);
     }
 
@@ -264,8 +265,7 @@ public class LoanServiceTests
             .ReturnsAsync(existingLoan);
 
         _loanRepositoryMock
-            .Setup(r => r.UpdateAsync(It.IsAny<Loan>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .Setup(r => r.Update(existingLoan));
 
         // Act
         var result = await _sut.ReturnBookAsync(loanId, TestContext.Current.CancellationToken);
@@ -274,11 +274,11 @@ public class LoanServiceTests
         result.IsSuccess.Should().BeTrue();
 
         _loanRepositoryMock.Verify(
-            r => r.UpdateAsync(It.Is<Loan>(l =>
+            r => r.Update(It.Is<Loan>(l =>
                 l.Id == loanId &&
-                l.ReturnedDate == _fixedUtcNow),
-            It.IsAny<CancellationToken>()),
+                l.ReturnedDate == _fixedUtcNow)),
             Times.Once);
+        _loanRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion

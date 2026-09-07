@@ -1,4 +1,4 @@
-﻿using BookCatalog.API.Dtos.Common;
+using BookCatalog.API.Dtos.Common;
 using BookCatalog.API.Dtos.Loan;
 using BookCatalog.API.Entities;
 using BookCatalog.API.ExtensionMethods;
@@ -129,6 +129,7 @@ public class LoanService : ILoanService
         }
         var loan = request.ToEntity(utcNow);
         await _loanRepository.AddAsync(loan, ct);
+        await _loanRepository.SaveChangesAsync(ct);
         _logger.LogInformation("Created loan {LoanId} for book copy {BookCopyId} and user {UserId}.",
             loan.Id, request.BookCopyId, request.UserId);
 
@@ -151,7 +152,8 @@ public class LoanService : ILoanService
             return Error.Conflict($"Loan '{loanId}' has already been returned.");
         }
         loan.ReturnedDate = _time.GetUtcNow();
-        await _loanRepository.UpdateAsync(loan, ct);
+        _loanRepository.Update(loan);
+        await _loanRepository.SaveChangesAsync(ct);
         _logger.LogInformation("Loan {LoanId} marked as returned.", loanId);
 
         return Result.Ok();

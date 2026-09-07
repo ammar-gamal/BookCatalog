@@ -162,6 +162,7 @@ public class BookServiceTests
                 b.Description == request.Description),
             It.IsAny<CancellationToken>()),
             Times.Once);
+        _bookRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -187,7 +188,7 @@ public class BookServiceTests
         result.Error.Type.Should().Be(ErrorType.NotFound);
 
         _bookRepositoryMock.Verify(
-            r => r.UpdateAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()),
+            r => r.Update(It.IsAny<Book>()),
             Times.Never);
     }
 
@@ -219,7 +220,7 @@ public class BookServiceTests
         result.Error.Type.Should().Be(ErrorType.Conflict);
 
         _bookRepositoryMock.Verify(
-            r => r.UpdateAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()),
+            r => r.Update(It.IsAny<Book>()),
             Times.Never);
     }
 
@@ -253,7 +254,7 @@ public class BookServiceTests
             r => r.ExistsAsync(request.AuthorId, It.IsAny<CancellationToken>()),
             Times.Once);
         _bookRepositoryMock.Verify(
-            r => r.UpdateAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()),
+            r => r.Update(It.IsAny<Book>()),
             Times.Never);
     }
 
@@ -290,7 +291,7 @@ public class BookServiceTests
         result.Error.Type.Should().Be(ErrorType.Validation);
 
         _bookRepositoryMock.Verify(
-            r => r.UpdateAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()),
+            r => r.Update(It.IsAny<Book>()),
             Times.Never);
     }
     [Fact]
@@ -319,7 +320,8 @@ public class BookServiceTests
 
         _authorRepositoryMock.Verify(r => r.ExistsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
         _bookRepositoryMock.Verify(r => r.IsIsbnTakenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-        _bookRepositoryMock.Verify(r => r.UpdateAsync(existingBook, It.IsAny<CancellationToken>()), Times.Once);
+        _bookRepositoryMock.Verify(r => r.Update(existingBook), Times.Once);
+        _bookRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
     [Fact]
     public async Task UpdateAsync_AllValid_UpdatesBookAndReturnsSuccessResult()
@@ -350,7 +352,7 @@ public class BookServiceTests
         result.Data.Id.Should().Be(bookId);
 
         _bookRepositoryMock.Verify(
-            r => r.UpdateAsync(It.Is<Book>(b =>
+            r => r.Update(It.Is<Book>(b =>
                 b.Id == bookId &&
                 b.Title == request.Title &&
                 b.AuthorId == request.AuthorId &&
@@ -359,9 +361,9 @@ public class BookServiceTests
                 b.Price == request.Price &&
                 b.Genre == request.Genre &&
                 b.PublicationDate == request.PublicationDate &&
-                b.Description == request.Description),
-            It.IsAny<CancellationToken>()),
+                b.Description == request.Description)),
             Times.Once);
+        _bookRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -389,7 +391,7 @@ public class BookServiceTests
             r => r.BookHasActiveLoanAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()),
             Times.Never);
         _bookRepositoryMock.Verify(
-            r => r.DeleteAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()),
+            r => r.Delete(It.IsAny<Book>()),
             Times.Never);
     }
 
@@ -416,7 +418,7 @@ public class BookServiceTests
         result.Error.Type.Should().Be(ErrorType.Conflict);
 
         _bookRepositoryMock.Verify(
-            r => r.DeleteAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()),
+            r => r.Delete(It.IsAny<Book>()),
             Times.Never);
     }
 
@@ -436,8 +438,7 @@ public class BookServiceTests
             .ReturnsAsync(false);
 
         _bookRepositoryMock
-            .Setup(r => r.DeleteAsync(existingBook, It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .Setup(r => r.Delete(existingBook));
 
         // Act
         var result = await _sut.DeleteAsync(bookId, TestContext.Current.CancellationToken);
@@ -446,8 +447,9 @@ public class BookServiceTests
         result.IsSuccess.Should().BeTrue();
 
         _bookRepositoryMock.Verify(
-            r => r.DeleteAsync(existingBook, It.IsAny<CancellationToken>()),
+            r => r.Delete(existingBook),
             Times.Once);
+        _bookRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion

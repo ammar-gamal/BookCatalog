@@ -87,6 +87,7 @@ public class BookService : IBookService
 
         var book = request.ToEntity(normalizedIsbn);
         await _bookRepository.AddAsync(book, ct);
+        await _bookRepository.SaveChangesAsync(ct);
         _logger.LogInformation("Created book {BookId}.", book.Id);
 
         return book.ToDto();
@@ -127,7 +128,8 @@ public class BookService : IBookService
         }
 
         request.UpdateEntity(targetBook, normalizedIsbn);
-        await _bookRepository.UpdateAsync(targetBook, ct);
+        _bookRepository.Update(targetBook);
+        await _bookRepository.SaveChangesAsync(ct);
         _logger.LogInformation("Updated book {BookId}.", id);
 
         return targetBook.ToDto();
@@ -149,7 +151,8 @@ public class BookService : IBookService
             return Error.Conflict($"Book '{id}' cannot be deleted because one of its copies has an active loan.");
         }
 
-        await _bookRepository.DeleteAsync(book, ct);
+        _bookRepository.Delete(book);
+        await _bookRepository.SaveChangesAsync(ct);
         _logger.LogInformation("Deleted book {BookId}.", id);
         return Result.Ok();
     }
