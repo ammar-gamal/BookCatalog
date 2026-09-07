@@ -2,14 +2,15 @@ using BookCatalog.API.Entities;
 using BookCatalog.API.Persistence;
 using BookCatalog.API.Repositories.Interfaces;
 using Microsoft.EntityFrameworkCore;
-using System.Net;
 
-namespace BookCatalog.API.Repositories.EFCore;
+namespace BookCatalog.API.Repositories;
 
-public class EFCoreLoanRepository : EFCoreBaseRepository<Loan>, ILoanRepository
+public class LoanRepository : BaseRepository<Loan>, ILoanRepository
 {
-    public EFCoreLoanRepository(AppDbContext context) : base(context)
-    { }
+    public LoanRepository(AppDbContext context) : base(context)
+    {
+    }
+
     public Task<bool> BookCopyHasActiveLoanAsync(int bookCopyId, CancellationToken ct = default)
     {
         return _dbSet.AnyAsync(e => e.BookCopyId == bookCopyId && e.ReturnedDate == null, ct);

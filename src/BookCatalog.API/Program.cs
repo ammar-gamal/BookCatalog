@@ -1,7 +1,6 @@
 using BookCatalog.API.Exceptions;
 using BookCatalog.API.Persistence;
-using BookCatalog.API.Repositories.EFCore;
-using BookCatalog.API.Repositories.InMemory;
+using BookCatalog.API.Repositories;
 using BookCatalog.API.Repositories.Interfaces;
 using BookCatalog.API.Services;
 using BookCatalog.API.Services.Interfaces;
@@ -31,13 +30,11 @@ namespace BookCatalog.API
             builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
             builder.Services.AddSingleton(TimeProvider.System);
-            //builder.Services.AddSingleton<IBookRepository, InMemoryBookRepository>();
-            //builder.Services.AddSingleton(typeof(IBaseRepository<>), typeof(InMemoryBaseRepository<>));
-            builder.Services.AddScoped(typeof(IBaseRepository<>), typeof(EFCoreBaseRepository<>));
-            builder.Services.AddScoped<IBookRepository, EFCoreBookRepository>();
-            builder.Services.AddScoped<IBookCopyRepository, EFCoreBookCopyRepository>();
-            builder.Services.AddScoped<ILoanRepository, EFCoreLoanRepository>();
-            builder.Services.AddScoped<IUserRepository, EFCoreUserRepository>();
+            builder.Services.AddScoped(typeof(IBaseRepository<>), typeof(BaseRepository<>));
+            builder.Services.AddScoped<IBookRepository, BookRepository>();
+            builder.Services.AddScoped<IBookCopyRepository, BookCopyRepository>();
+            builder.Services.AddScoped<ILoanRepository, LoanRepository>();
+            builder.Services.AddScoped<IUserRepository, UserRepository>();
             builder.Services.AddScoped<IAuthorService, AuthorService>();
             builder.Services.AddScoped<IBookService, BookService>();
             builder.Services.AddScoped<IBookCopyService, BookCopyService>();
