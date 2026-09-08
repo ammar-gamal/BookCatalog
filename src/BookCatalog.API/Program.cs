@@ -48,7 +48,15 @@ namespace BookCatalog.API
                             });
             builder.Services.AddDbContext<AppDbContext>(options =>
             {
-                options.UseSqlServer(builder.Configuration.GetConnectionString("Database"));
+                options.UseSqlServer(builder.Configuration.GetConnectionString("Database"),
+                    sqlOptions =>
+                    {
+                        sqlOptions.EnableRetryOnFailure(
+                                       maxRetryCount: 6,
+                                       maxRetryDelay: TimeSpan.FromSeconds(10),
+                                       errorNumbersToAdd: null
+                                   );
+                    });
                 if(builder.Environment.IsDevelopment())
                     options.EnableSensitiveDataLogging();
             });
