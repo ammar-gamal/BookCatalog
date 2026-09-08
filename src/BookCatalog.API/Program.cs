@@ -1,5 +1,7 @@
 using BookCatalog.API.Exceptions;
 using BookCatalog.API.Logging;
+using BookCatalog.API.Options;
+using BookCatalog.API.Options.Validators;
 using BookCatalog.API.Persistence;
 using BookCatalog.API.Repositories;
 using BookCatalog.API.Repositories.Interfaces;
@@ -7,6 +9,7 @@ using BookCatalog.API.Services;
 using BookCatalog.API.Services.Interfaces;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Serilog;
 using System.Text.Json.Serialization;
 
@@ -27,6 +30,11 @@ namespace BookCatalog.API
                     config.ReadFrom.Configuration(context.Configuration);
                     config.Enrich.With<TraceIdEnricher>();
                 });
+                builder.Services.AddOptions<DatabaseOptions>()
+                  .Bind(builder.Configuration.GetSection(DatabaseOptions.SectionName))
+                  .ValidateOnStart();
+                builder.Services.AddSingleton<IValidateOptions<DatabaseOptions>, DatabaseOptionsValidations>();
+
                 // Add services to the container.
                 builder.Services.AddProblemDetails(options =>
                 {
@@ -57,9 +65,10 @@ namespace BookCatalog.API
                                 {
                                     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
                                 });
-                builder.Services.AddDbContext<AppDbContext>(options =>
+                builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
                 {
-                    options.UseSqlServer(builder.Configuration.GetConnectionString("Database"),
+                    var dbOptions = serviceProvider.GetRequiredService<IOptions<DatabaseOptions>>().Value;
+                    options.UseSqlServer(dbOptions.ConnectionString,
                         sqlOptions =>
                         {
                             sqlOptions.EnableRetryOnFailure(
@@ -69,6 +78,9 @@ namespace BookCatalog.API
                                        );
                         });
                 });
+
+
+
                 builder.Services.AddOpenApi();
 
                 var app = builder.Build();
