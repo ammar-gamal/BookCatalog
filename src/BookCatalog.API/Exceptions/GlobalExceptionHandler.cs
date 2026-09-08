@@ -18,7 +18,7 @@ public class GlobalExceptionHandler : IExceptionHandler
         Exception exception,
         CancellationToken cancellationToken)
     {
-        _logger.LogCritical(exception, "An unhandled exception occurred: {Message}", exception.Message);
+        _logger.LogError(exception, "An unhandled exception occurred: {Message}", exception.Message);
 
         var problemDetails = new ProblemDetails
         {

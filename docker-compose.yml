@@ -7,10 +7,13 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Database: "Server=db,1433;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Akvelon123456789};Database=BookCatalog;TrustServerCertificate=True"
+      Serilog__WriteTo__1__Args__serverUrl: "http://logging:80"
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:
       db:
+        condition: service_healthy
+      logging:
         condition: service_healthy
   db:
     image: mcr.microsoft.com/mssql/server:2025-latest
@@ -29,7 +32,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 30s
+
+  logging:
+    image: datalust/seq:latest
+    container_name: logging
+    environment:
+      ACCEPT_EULA: "Y"
+      SEQ_FIRSTRUN_ADMINPASSWORD: "${SEQ_FIRSTRUN_ADMINPASSWORD:-Akvelon123456789}"
+    ports:
+      - "${LOGGING_PORT:-8081}:80"
+    volumes:
+      - type: volume
+        source: seq
+        target: /data
+    healthcheck:
+      test: [ "CMD-SHELL", "seqcli node health -s http://localhost || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
       start_period: 10s
 
 volumes:
   mssql:
+  seq:
