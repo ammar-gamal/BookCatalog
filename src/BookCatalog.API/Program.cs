@@ -7,6 +7,8 @@ using BookCatalog.API.Repositories;
 using BookCatalog.API.Repositories.Interfaces;
 using BookCatalog.API.Services;
 using BookCatalog.API.Services.Interfaces;
+using HealthChecks.UI.Client;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -84,6 +86,10 @@ namespace BookCatalog.API
                     options.ShutdownTimeout = TimeSpan.FromSeconds(20);
                 });
 
+                builder.Services.AddHealthChecks()
+                                .AddDbContextCheck<AppDbContext>(
+                                    name: "dbcontext",
+                                    tags: ["ready"]);
 
                 builder.Services.AddOpenApi();
 
@@ -91,6 +97,19 @@ namespace BookCatalog.API
 
                 app.UseExceptionHandler();
                 app.UseSerilogRequestLogging();
+
+                app.MapHealthChecks("/healthz/ready", new HealthCheckOptions
+                {
+                    Predicate = healthCheck => healthCheck.Tags.Contains("ready"),
+                    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+                });
+
+                app.MapHealthChecks("/healthz/live", new HealthCheckOptions
+                {
+                    Predicate = _ => false,
+                    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+                });
+
                 if(!app.Environment.IsEnvironment("Testing"))
                 {
                     using var scope = app.Services.CreateScope();
