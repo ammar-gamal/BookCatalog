@@ -1,4 +1,5 @@
 ﻿using BookCatalog.API;
+using BookCatalog.API.Options;
 using BookCatalog.API.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -41,18 +42,25 @@ public class BookCatalogWebApplicationFactory : WebApplicationFactory<Program>, 
     }
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        var connectionString = _sqlContainer.GetConnectionString();
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
-            var serviceDescriptor = services
+            var dbContextDescriptor = services
                 .SingleOrDefault(sd => sd.ServiceType == typeof(DbContextOptions<AppDbContext>));
 
-            if(serviceDescriptor is not null)
-                services.Remove(serviceDescriptor);
+            if(dbContextDescriptor is not null)
+                services.Remove(dbContextDescriptor);
+
+            services.AddOptions<DatabaseOptions>()
+                  .Configure(options =>
+                  {
+                      options.ConnectionString = connectionString;
+                  });
 
             services.AddDbContext<AppDbContext>(options =>
             {
-                options.UseSqlServer(_sqlContainer.GetConnectionString());
+                options.UseSqlServer(connectionString);
             });
         });
     }
