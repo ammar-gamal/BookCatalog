@@ -13,8 +13,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      logging:
-        condition: service_healthy
   db:
     image: mcr.microsoft.com/mssql/server:2025-latest
     container_name: db
@@ -46,12 +44,6 @@ services:
       - type: volume
         source: seq
         target: /data
-    healthcheck:
-      test: [ "CMD-SHELL", "seqcli node health -s http://localhost || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
 
 volumes:
   mssql:
