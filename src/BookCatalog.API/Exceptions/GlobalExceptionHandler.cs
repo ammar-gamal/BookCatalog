@@ -29,7 +29,7 @@ public class GlobalExceptionHandler : IExceptionHandler
             Extensions = new Dictionary<string, object?>()
             {
                 {"requestId",httpContext.TraceIdentifier },
-                {"tracdeId", httpContext.Features.Get<IHttpActivityFeature>()?.Activity?.Id}
+                {"traceId", httpContext.Features.Get<IHttpActivityFeature>()?.Activity?.Id}
             }
         };
 
