@@ -115,7 +115,7 @@ dotnet test
 Unit tests run completely in-memory with mocked dependencies and do not require Docker or a database:
 
 ```bash
-dotnet test tests/BookCatalog.UnitTests
+dotnet test --project tests/BookCatalog.UnitTests
 ```
 
 ### 3. Run Integration Tests Only
@@ -123,5 +123,5 @@ dotnet test tests/BookCatalog.UnitTests
 Integration tests execute real HTTP endpoints against a real Microsoft SQL Server instance using **Testcontainers** and clean up state using **Respawn**. Ensure Docker Desktop is running before executing:
 
 ```bash
-dotnet test tests/BookCatalog.IntegrationTests
+dotnet test --project tests/BookCatalog.IntegrationTests
 ```
