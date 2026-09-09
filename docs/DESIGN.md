@@ -1,15 +1,28 @@
 
 # Book Catalog Platform — Design Document
 
-## What I Built
+## Overview
 
-A comprehensive REST API for a **Book Catalog Platform**, built with **ASP.NET Core (.NET 10)**, **Entity Framework Core 10**, and **SQL Server**.
+Over the past four weeks, this platform grew from a simple single-entity in-memory prototype into a resilient, fully tested, containerized REST API backed by SQL Server.
 
-The system manages authors, books, book copies, user accounts, the full borrowing/returning lifecycle via loans and history of all loans.
+This document tells the story of that month-long journey. It explains what the platform does today, how its architecture evolved week by week, the reasoning behind every major design choice, the lessons learned along the way, and what I would do differently if started again.
 
-## API Endpoints
+## 1. What the Platform Does
 
-### 1. Authors (`/api/authors`)
+The **Book Catalog Platform** is a backend service for managing a modern library. It handles the full journey of books, library members, and physical lending
+
+### Core Capabilities
+
+- **Authors Management:**  Stores biographical records for authors who write the books in the catalog.
+- **Book Catalog (Conceptual Titles):**  Catalogs book titles with rich metadata (Title, Genre, Price, Publication Date, and ISBN). Supports dynamic searching, price/date range filtering, multi-field sorting, and pagination.
+- **Physical Inventory (Book Copies):**  Distinguishes between the book as an idea and the actual physical copies on library shelves, tracking each copy by its unique barcode.
+- **User Accounts:**  Manages registered library users who can borrow books.
+- **Lending & Loan Lifecycle:**  Manages the entire borrowing process. Users can borrow available physical copies, return them when finished, and view complete borrowing histories. The system strictly prevents double-borrowing of active copies.
+- **Production-Grade Infrastructure:**  Built with structured logging (Serilog + Seq), transient error retries, health check endpoints, graceful shutdown, and containerized deployment with Docker.
+
+### Summary of API Endpoints
+
+#### 1. Authors (`/api/authors`)
 
 | Method | Route | Description |
 | :--- | :--- | :--- |
@@ -17,7 +30,7 @@ The system manages authors, books, book copies, user accounts, the full borrowin
 | `GET` | `/api/authors/{id}` | Get a single author by ID |
 | `POST` | `/api/authors` | Create a new author |
 
-### 2. Books (`/api/books`)
+#### 2. Books (`/api/books`)
 
 | Method | Route | Description |
 | :--- | :--- | :--- |
@@ -25,9 +38,9 @@ The system manages authors, books, book copies, user accounts, the full borrowin
 | `GET` | `/api/books/{id}` | Get a single book by ID |
 | `POST` | `/api/books` | Create a new book |
 | `PUT` | `/api/books/{id}` | Update an existing book |
-| `DELETE` | `/api/books/{id}` | Delete a book |
+| `DELETE` | `/api/books/{id}` | Delete a book only if any of it's copied not has active loans |
 
-### 3. Book Copies (`/api/book-copies`)
+#### 3. Book Copies (`/api/book-copies`)
 
 | Method | Route | Description |
 | :--- | :--- | :--- |
@@ -35,7 +48,7 @@ The system manages authors, books, book copies, user accounts, the full borrowin
 | `GET` | `/api/book-copies/{id}` | Get a single book copy by ID |
 | `POST` | `/api/book-copies` | Create a new copy for a book with a unique barcode |
 
-### 4. Users (`/api/users`)
+#### 4. Users (`/api/users`)
 
 | Method | Route | Description |
 | :--- | :--- | :--- |
@@ -43,7 +56,7 @@ The system manages authors, books, book copies, user accounts, the full borrowin
 | `GET` | `/api/users/{id}` | Get a user by ID |
 | `POST` | `/api/users` | Create a new user |
 
-### 5. Loans (`/api/loans`)
+#### 5. Loans (`/api/loans`)
 
 | Method | Route | Description |
 | :--- | :--- | :--- |
@@ -55,38 +68,52 @@ The system manages authors, books, book copies, user accounts, the full borrowin
 | `POST` | `/api/loans` | Borrow a book copy |
 | `PATCH` | `/api/loans/{id}` | Return a borrowed book copy |
 
+#### 6. Health Check (`/healthz`)
+
+| Method | Route | Description |
+| :--- | :--- | :--- |
+| `GET` | `/healthz/live` | Liveness check (is the process alive?) |
+| `GET` | `/healthz/ready` | Readiness check (can it connect to the database?) |
+
 ---
 
-## How the Solution Is Structured
+### How the Solution Is Structured
 
 ```text
 BookCatalog/
 ├── src/
 │   └── BookCatalog.API/
-│       ├── Controllers/        → Thin HTTP boundary (status code mapping via AppController)
-│       ├── Services/           → Business rules
-│       ├── Repositories/       → Data access abstractions & implementations
+│       ├── Controllers/        → Thin HTTP endpoints (AppController base for RFC 7807 problem details)
+│       ├── Services/           → Business logic layer (implements use cases, orchestrates repository calls)
+│       ├── Repositories/       → Data access abstractions (IBaseRepository<T>) & EF Core implementations
 │       ├── Persistence/        → AppDbContext and fluent EF Core EntityTypeConfiguration classes
-│       ├── Migrations/         → EF Core database migrations
-│       ├── Entities/           → Domain models
-│       ├── Dtos/               → Contract models grouped by resource (Author, Book, Loan, etc.)
-│       ├── ExtensionMethods/   → DTO mapping, pagination (ToPagedListAsync), query filters
-│       ├── Utilities/          → Result<T>/Error pattern, ISBN normalizer
-│       ├── Exceptions/         → Global exception handler
-│       └── Program.cs          → DI container registration, middleware, and auto-migration
+│       ├── Migrations/         → EF Core database schema migrations
+│       ├── Entities/           → Domain models (Author, Book, BookCopy, User, Loan, BaseEntity)
+│       ├── Dtos/               → Request/response contract models grouped by resource
+│       ├── ExtensionMethods/   → Manual DTO mapping, pagination (ToPagedListAsync), query filters
+│       ├── Utilities/          → Result<T>/Error pattern and ISBN normalizer
+│       ├── Exceptions/         → GlobalExceptionHandler returning RFC 7807 ProblemDetails
+│       ├── Logging/            → Serilog custom enrichers
+│       ├── Options/            → Strongly-typed configuration options & startup validators (DatabaseOptions)
+│       └── Program.cs          → DI setup, Serilog, health checks, resilience, graceful shutdown, pipeline
 ├── tests/
-│   ├── BookCatalog.UnitTests/  → Isolated unit tests with Moq, MockQueryable, FluentAssertions, FakeTimeProvider
-│   └── BookCatalog.IntegrationTests/ → End-to-end integration tests
-├── docs/                       → System documentation and architecture decisions
-├── Dockerfile                  → Multi-stage image build
-└── docker-compose.yml          → Defines and manages the API and SQL Server services
+│   ├── BookCatalog.UnitTests/  → Isolated unit tests (Moq, MockQueryable, FluentAssertions, FakeTimeProvider)
+│   │   ├── Services/           → Isolated service business logic tests
+│   │   └── ExtensionMethods/   → Unit tests for DTO mappings and queryable extensions
+│   └── BookCatalog.IntegrationTests/ → End-to-end integration tests (real HTTP against real SQL Server)
+│       ├── Books/              → Book CRUD, filtering, sorting, and constraint integration tests
+│       ├── Workflows/          → End-to-end borrowing and loan lifecycle workflow tests
+│       └── Infrastructure/     → Testcontainers (SQL Server), Respawn, WebApplicationFactory fixture
+├── docs/                       → System documentation, architecture decisions, ERD, and schema diagrams
+├── Dockerfile                  → Multi-stage optimized production image build
+└── docker-compose.yml          → Multi-container composition (API, SQL Server, and Seq logging)
 ```
 
 ---
 
-## Decisions I Made and Why
+## 2. Decisions I Made and Why
 
-### 1. Layered Single-Project Architecture over Clean Architecture Overengineering (Week-2)
+### 1. Layered Single-Project Architecture over Clean Architecture Overengineering
 
 I was initially considering using Clean Architecture with CQRS (an approach I used in a previous project, [Chattr](https://github.com/ammar-gamal/Chattr)), but I felt this would be overengineering and introduce unnecessary complexity.
 
@@ -106,7 +133,7 @@ The layers are split with a strict downward dependency flow (`Controllers -> Ser
 
 As the dependencies strictly flow downwards, each layer can be tested in isolation. For instance, the Service layer can be tested with mocked data repositories without needing a live database connection.
 
-### 2. Generic Repository Pattern (`IBaseRepository<TEntity>`) (Week 2)
+### 2. Generic Repository Pattern (`IBaseRepository<TEntity>`)
 
 A generic base repository interface (`IBaseRepository<TEntity>`) and its implementations (`InMemoryBaseRepository<TEntity>` in Week 1–2, and `EFCoreBaseRepository<TEntity>` in Week 3) were introduced to handle standard data operations uniformly across all entities.
 
@@ -117,7 +144,7 @@ The reasoning:
 - **Focused Specific Repositories**: Specific interfaces like `IBookRepository` and `ILoanRepository` inherit all standard operations from `IBaseRepository` and focus exclusively on declaring domain-specific queries (such as `IsIsbnTakenAsync` or `BookHasActiveLoanAsync`).
 - **Direct Usage for Simple Entities**: For entities that do not require custom queries (such as `Author` and `User`), business services inject `IBaseRepository<Author>` and `IBaseRepository<User>` directly, avoiding the need to create empty, redundant repository classes.
 
-### 3. Returning `IQueryable<T>` from Repository (Pragmatism vs. Strict Abstraction) (Week 2/3)
+### 3. Returning `IQueryable<T>` from Repository (Pragmatism vs. Strict Abstraction)
 
 The generic repository exposes `IQueryable<T>` via `GetAll()` rather than returning a pre-materialized `IEnumerable<T>` or `List<T>`.
 
@@ -126,13 +153,13 @@ This was an intentional architectural decision weighing **strict theoretical abs
 #### Why I Chose `IQueryable<T>`
 
 1. **Deferred Execution & Database Evaluation**:
-   The query is not executed immediately in memory. The service layer can dynamically compose filters (`ApplyFilters`), multi-field sorting, and pagination (`ToPagedListAsync`) so that SQL Server evaluates everything in a single, optimized SQL query on the database server. With `IEnumerable<T>`, data would be materialized , pulling far more records into memory than needed.
+   The query is not executed immediately in memory. The service layer can dynamically compose filters (`ApplyFilters`), multi-field sorting, and pagination (`ToPagedListAsync`) so that SQL Server evaluates everything in a single, optimized SQL query on the database server. With `IEnumerable<T>`, data would be materialized, pulling far more records into memory than needed.
 2. **Direct Projection to DTOs**:
    The service layer projects directly into DTOs via `.Select(BookToDtoProjection)`. SQL Server only reads and transfers the exact columns needed, reducing network payload and memory allocation.
 3. **Preventing Repository Bloat**:
    Without `IQueryable<T>`, the repository would require dozens of custom query methods (`GetByGenreAsync`, `GetByPriceRangeAsync`, `GetFilteredAsync`,`GetSortedAsync`,`GetFilteredAndSortedAsync`...etc) to support every combination of UI filters. `IQueryable<T>` keeps the repository interface minimal and DRY.
 4. **Pragmatism & YAGNI**:
-   In real production systems, the underlying ORM/data source is rarely swapped. Over-abstracting the repository strictly to hide EF Core from the service layer would be a classic case of premature optimization (Which is the root of all evil. :D)
+   In real production systems, the underlying ORM/data source is rarely swapped. Over-abstracting the repository strictly to hide EF Core from the service layer would be a classic case of premature optimization.
 
 #### The Trade-Offs (The Leaky Abstraction)
 
@@ -154,7 +181,7 @@ This was fine when each service method performed a single write, but it breaks d
 ```csharp
 // Before — two independent commits if there were two writes:
 await _loanRepository.Delete(loan, ct);         // commits immediately
-await _bookCopyReposiory.Delete(copy, ct);  // commits immediately
+await _bookCopyRepository.Delete(copy, ct);  // commits immediately
 
 // After — one commit for both:
 _loanRepository.Delete(loan);
@@ -196,7 +223,7 @@ The reasoning is proactive database design for Week 3:
 ### 8. Storing both Isbn and NormalizedIsbn
 
 ISBNs can be submitted in various valid formats (e.g., with or without hyphens and spaces). The `NormalizedIsbn` field is generated via the `IsbnNormalizer` utility, which strips out hyphens and spaces, trims whitespace, and converts the string to uppercase.
-This clean, normalized version is what the database uniqueness constraints and duplication checks run against, while the original `Isbn` is preserved to return back to the client exactly as they originally formatted it
+This clean, normalized version is what the database uniqueness constraints and duplication checks run against, while the original `Isbn` is preserved to return back to the client exactly as they originally formatted it.
 
 ### 9. Manual DTO Mapping via Extension Methods
 
@@ -235,15 +262,13 @@ All controllers inherit `AppController`, which provides a single `HandleError(Re
 
 All errors — validation errors, not-found, conflicts, unhandled exceptions — return `ProblemDetails` (RFC 7807). Every error response includes `requestId` and `traceId` so errors can be correlated with logs.
 
----
+### 15. Testcontainers + Respawn for Integration Testing
 
-## What was painful to change from week 1, and what that tells you about my original design
-
-Honestly, I didn’t have to make any significant changes when I started unit testing in Week 2. From the beginning, I followed a layered architecture and used the Repository Pattern, which kept my business logic separated from the data access layer
+For integration testing, instead of using EF Core's in-memory provider or SQLite, tests run against a real Microsoft SQL Server container started automatically via `Testcontainers`. Between test runs, `Respawn` resets the tables in milliseconds
 
 ---
 
-## Week 3: Moving from In-Memory to a Relational Database with Entity Framework Core and Dockerization
+## 3. Week 3: Moving from In-Memory to a Relational Database with Entity Framework Core and Dockerization
 
 ### My Data Model and Why It Is Shaped This Way
 
@@ -281,7 +306,7 @@ The data model represents a library book catalog system. It is composed of five 
    **Key indexes by table:**
 
    - **Loans**
-     - **Unique filtered index on `BookCopyId WHERE ReturnedDate IS NULL`:** Enforces uniqueness only for active loans. This enforces the core domain rule at the database level — that a single copy can only be on a single active loan at any given time — preventing race conditions and double-borrowing without requiring manual transaction and handling concurrency conflicts .
+     - **Unique filtered index on `BookCopyId WHERE ReturnedDate IS NULL`:** Enforces uniqueness only for active loans. This enforces the core domain rule at the database level — that a single copy can only be on a single active loan at any given time — preventing race conditions and double-borrowing without requiring manual transaction and handling concurrency conflicts.
      - **Note:** The filtered unique index on `BookCopyId` already provides an index usable for lookups over the *active* subset (`ReturnedDate IS NULL`). A separate non-filtered index on `BookCopyId` is still useful for queries spanning all loans (active + returned), such as full loan history for a book copy.
 
    - **Books**
@@ -324,7 +349,7 @@ The core orchestration — validating rules, calling repository methods (`AddAsy
 
 This transition is **proof that my Week 2 architecture worked exactly as intended**:
 
-1. **Dependency Inversion Principle (DIP) Paid Off:** `BookService` never depended on `ConcurrentDictionary`, `List<T>`, or `InMemoryBookRepository`. It depended strictly on abstractions (`IBookRepository`, `IBaseRepository<T>`). Swapping the entire database engine was largely a matter of changing a single line in `Program.cs` (switching the DI registration from `InMemoryBookRepository` to `EfBookRepository`).
+1. **Dependency Inversion Principle (DIP) Paid Off:** `BookService` never depended on `ConcurrentDictionary`, `List<T>`, or `InMemoryBookRepository`. It depended strictly on abstractions (`IBookRepository`, `IBaseRepository<T>`). Swapping the entire database engine was largely a matter of changing a single line in `Program.cs` (switching the DI registration from `InMemoryBookRepository` to `EfBookRepository` and change the lifetime to scoped).
 
 2. **The `IQueryable<T>` Decision in Week 2 Was Validated:** In Week 2, I chose to return `IQueryable<T>` from `GetAll()` instead of concrete collections like `List<T>`. When moving to EF Core, my LINQ expressions, filters (`ApplyFilters`), and projections (`.Select()`) seamlessly translated to SQL queries evaluated on the database server, without restructuring the service layer — though, as discussed above, this did lead me to change the service code to use EF Core async extension methods.
 
@@ -333,7 +358,7 @@ This transition is **proof that my Week 2 architecture worked exactly as intende
  1. **Every paginated list performs two database queries**  
     `ToPagedListAsync` always runs `CountAsync`, then a separate `Skip/Take` query. Also for deep pages  `SKIP`  becomes slower  because SQL Server must locate and discard earlier rows.
 
- 2. **Serialized round trips in write workflows**  
+ 2. **Sequential round trips in write workflows**  
     Most write operations perform multiple sequential existence checks (e.g., checking foreign key existence, checking barcode existence before insertion, ..etc) before saving. This primarily increases latency due to multiple round trips to the database and increases database connection usage.
 This could be mitigated by relying on database constraints instead of performing explicit existence checks. However, this approach requires handling database constraint violations and translating the resulting database exceptions into appropriate application-level errors.
 
@@ -428,3 +453,111 @@ ENTRYPOINT ["dotnet","BookCatalog.API.dll"]
 ```
 
 > Configures the container to execute `dotnet BookCatalog.API.dll` when it starts up.
+
+---
+
+## 4. Architecture Evolution Across the Four Weeks
+
+The system was developed iteratively over four weeks, shifting from basic correctness to maintainability, then persistence, and finally production readiness:
+
+### Week 1: Core Foundation & In-Memory MVP
+
+- **Focus**: Establishing the solution structure, basic domain entities, domain errors, and initial REST endpoints.
+- **Implementation**:
+  - Created domain entities (`Book`), DTO contracts, manual mapping extension methods.
+  - Instead of using exceptions for expected business error, I implemented the `Result<T>` pattern and map the  business errors to the appropriate HTTP status codes and returning them as `ProblemDetails` through `AppController.HandleError()`.
+  - Defined layered architecture inside a single project with strict downward dependency flow (`Controllers -> Services -> Repositories`).
+  - Implemented Generic Repository Pattern (`InMemoryBaseRepository<T>`) using `ConcurrentDictionary<int, T>` with atomic ID generation via  `Interlocked.Increment` for thread-safe operations in a singleton lifetime.
+  - Decided to return `IQueryable<T>` from repositories to support deferred execution and flexible filtering, sorting, and projection, while knowingly accepting the resulting leaky-abstraction trade-off.
+  - Implemented `IBookService` that contain main business logic for book CRUD operations.
+
+### Week 2: Pagination & Unit Testing
+
+- **Focus**: Dynamic filtering, sorting, pagination, and robust unit testing.
+- **Implementation**:
+  - Implemented multi-field filtering (genre, price range, date range), dynamic sorting (ascending/descending), and server-side pagination (`ToPagedListAsync`).
+  - Implemented comprehensive unit tests for  `BookService`, DTO mappers, and queryable extensions using  **xUnit**,  **Moq**, **FakeTimeProvider**, and  **FluentAssertions**.
+
+### Week 3: Database Persistence and Containerization
+
+- **Focus**: Replace in-memory storage with a persistent relational database, expand the library domain to real-world workflows and Docker support.
+- **Implementation**:
+  - Replaced the in-memory repository implementation with an **EF Core** `AppDbContext`**-based repository** backed by **Microsoft SQL Server**.
+  - **Expanded the Domain Model:**  Separated the conceptual title (`Book`) from its physical items (`BookCopy`). Added  `Author`,  `User`, and  `Loan`  entities to model real borrowing and returning lifecycles.
+  - During the migration from in-memory storage to EF Core, returning `IQueryable` from the repository exposed a **leaky abstraction**, requiring changes to `BookService` and the unit tests. Synchronous LINQ operations were replaced with EF Core asynchronous query extensions, and `MockQueryable.Moq` was introduced to support testing of `IQueryable`-based queries.
+
+  - Utilized LINQ to filter entities at the database level and applied projections to map entities directly to DTOs
+  - Containerized the application with a multi-stage `Dockerfile` (optimized for layer caching) and configured service orchestration with `docker-compose.yml`.
+
+### Week 4: Integration Testing & Production Readiness
+
+- **Focus**: Strengthening the application for production through integration testing,  configuration validation, resilience, and graceful shutdown.
+- **Implementation**:
+  - Refactored repository write operations to remove implicit saves from individual `Add`, `Update`, and `Delete` methods. Exposed `SaveChangesAsync` so the service layer can coordinate multiple repository operations and commit them atomically within a single transaction.
+  - Implemented integration tests using `WebApplicationFactory`, `Testcontainers` with a real SQL Server instance, and `Respawn` for fast database resets between test runs.
+  - Added structured logging using `Serilog` and added a `Seq` container to centralize, visualize, and query application logs.
+  - Added fail-fast configuration validation using strongly typed `DatabaseOptions`, custom `IValidateOptions`, and `.ValidateOnStart()` to detect invalid or missing configuration during application startup.
+  - Configured EF Core `EnableRetryOnFailure` with to handle transient database connectivity failures.
+  - Implemented graceful shutdown by configuring Kestrel's `ShutdownTimeout`, Docker Compose's `stop_grace_period`, and cancellation token propagation to allow in-flight requests to complete cleanly or cancel the operation by the token.
+  - Added separate liveness and readiness health probes: `/healthz/live` for process health and `/healthz/ready` for dependency health, particularly SQL Server availability.
+
+---
+
+## 5. What I Would Do Differently If I Started Again
+
+Reflecting on the month-long development cycle, several architectural patterns could be improved if rebuilding from scratch:
+
+### 1. Rich Domain Model (DDD Entities) Instead of Anemic Domain Models
+
+- **Current State:** Domain entities (`Book`, `Loan`, `BookCopy`) are primarily anemic data holders with public getters and setters. Business invariants (such as checking whether a loan is already returned, or setting return timestamps) are orchestrated inside `LoanService` and `BookService`.
+- **Alternative:** Encapsulate business logic directly within the entities (e.g., `loan.Return(returnDate)` and `copy.MarkAsBorrowed()`). Making entity property setters private and exposing domain methods would ensure that an entity can never exist in an invalid state, regardless of which service manipulates it.
+
+### 2. Database Constraints Instead of Application-Level Existence Checks
+
+- **Current State:** Write operations perform sequential checks (e.g., `await _authorRepository.ExistsAsync(authorId)` and `await _bookRepository.IsIsbnTakenAsync(isbn)`) before executing inserts or updates.
+- **Alternative:** Under high write concurrency, sequential checks introduce extra network round-trips and still suffer from race conditions between check and insert.  This could be mitigated by relying on database constraints instead of performing explicit existence checks. However, this approach requires handling database constraint violations and translating the resulting database exceptions into appropriate application-level errors.
+
+### 3. Vertical Slice Architecture / CQRS for Query Separation
+
+- **Current State:** Standard three-layer architecture (`Controller -> Service -> Repository`).
+- **Alternative:** While this was the right decision to avoid initial overengineering, as queries become more specialized (e.g., historical loan reporting by book copy, user borrowing stats), vertical slices using MediatR would allow write commands and complex read queries to be handled independently. Read handlers could query the database using Dapper, which can be more performant than EF Core since it executes raw SQL directly.
+
+### 4. Use `IAppDbContext` Directly Instead of the Repository Pattern
+
+- **Current State:** The application uses custom repository abstractions (`IBaseRepository<T>`, `IBookRepository`) on top of EF Core. While these provide a layer of abstraction, they also introduce additional indirection and boilerplate. The need to expose `IQueryable<T>` for dynamic filtering, sorting, pagination, and projection also reduces the value of the abstraction.
+- **Alternative:** Inject `IAppDbContext` directly into the application services and use EF Core's `DbSet<T>` for data access. Since `DbContext` already implements the Unit of Work pattern and `DbSet<T>` provides repository-like functionality, removing the custom repository layer would simplify the architecture, reduce boilerplate, and allow queries to take full advantage of EF Core's capabilities.
+
+---
+
+## 6. Known Limitations & What Would Break First Under Load
+
+Being honest about system bottlenecks is critical for production defense:
+
+### 1. The Two-Query Pagination Bottleneck (Breaks First)
+
+`ToPagedListAsync` always runs `CountAsync`, then a separate `Skip/Take` query to retrieve the requested page. This means every paginated request requires **two database round trips**, adding unnecessary latency. Additionally, `Skip/Take` becomes increasingly expensive for deep pages because SQL Server must locate and discard earlier rows.
+
+### 2. Multi-RT Database Existence Checks (Latency Spike)
+
+  Most write operations perform multiple sequential existence checks (e.g., checking foreign key existence, checking barcode existence before insertion, ..etc) before saving. This primarily increases latency due to multiple round trips to the database and the chance for Check-Then-Act race condition.
+This could be mitigated by relying on database constraints instead of performing explicit existence checks. However, this approach requires handling database constraint violations and translating the resulting database exceptions into appropriate application-level errors.
+
+---
+
+## 7. What I Learned That I Did Not Know a Month Ago
+
+### 1. Integration Testing Against Real Dependencies
+
+Previously, I thought integration testing often meant choosing between two options: in-memory databases, which can hide real database behavior and constraints, or shared test databases, which can suffer from data pollution and test interference. I learned to combine **Testcontainers** to spin up real SQL Server instances in Docker, **Respawn** to quickly reset the database between tests, and **WebApplicationFactory** to run the application in an in-memory test server significantly improved my testing workflow.
+
+### 2. Production Readiness
+
+I learned that production readiness is not just about writing clean code; it requires considering the entire operational lifecycle. Production systems operate in environments where networks can fail, containers can restart unexpectedly, and configuration can be invalid. Writing reliable software means anticipating these scenarios by using bounded exponential-backoff retries with jitter for transient failures, validating critical configuration at startup, using circuit breakers when communicating with external services to prevent cascading failures, and implementing graceful shutdowns through ASP.NET Core's `HostOptions.ShutdownTimeout` to allow in-flight requests to complete before the application stops.
+
+### 3. Structured Logging
+
+   I learned that structured logging is about turning log output into machine-queryable data rather than plain text. Enriching logs with information such as `TraceId` makes troubleshooting much easier for example, debugging a failed request at 3 AM a matter of a single query in Seq rather than searching through thousands of unindexed text files.
+
+### 4. The Pragmatism of Leaky Abstractions
+
+   Pure architectural theory often says that repositories must completely encapsulate data access. In practice, a pragmatic solution like returning `IQueryable<T>` allows database engines to do what they do best (filtering, sorting, projecting, and paging in a single SQL round trip) without requiring hundreds of specialized repository methods.
