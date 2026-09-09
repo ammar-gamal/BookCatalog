@@ -35,6 +35,7 @@ namespace BookCatalog.API
                   .ValidateOnStart();
                 builder.Services.AddSingleton<IValidateOptions<DatabaseOptions>, DatabaseOptionsValidations>();
 
+
                 // Add services to the container.
                 builder.Services.AddProblemDetails(options =>
                 {
@@ -78,7 +79,10 @@ namespace BookCatalog.API
                                        );
                         });
                 });
-
+                builder.Services.Configure<HostOptions>(options =>
+                {
+                    options.ShutdownTimeout = TimeSpan.FromSeconds(20);
+                });
 
 
                 builder.Services.AddOpenApi();
