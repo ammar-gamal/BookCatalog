@@ -456,6 +456,17 @@ ENTRYPOINT ["dotnet","BookCatalog.API.dll"]
 
 ---
 
+### Multi-Container Architecture & Networking (Docker Compose)
+
+The application environment is fully containerized and orchestrated using Docker Compose across an isolated network, connecting the API to its dependencies:
+![Docker Network & Service Architecture](./Docker-Visualization.png)
+
+#### Key Architectural Elements
+
+- **Internal Docker Network:** Containers communicate via internal DNS names (`db:1433` for SQL Server, `logging:80` for Seq)
+- **Port Forwarding:** Container ports are published to the host ports (`${API_PORT:-8080}`, `${DB_PORT:-1433}`, `${LOGGING_PORT:-8081}`) allowing external clients and management tools on the host to access the API, database, and logging server.
+- **Persistent Volumes:** Data safety is preserved across container restarts using named volumes (`mssql` binded at `/var/opt/mssql` and `seq` binded at `/data`).
+
 ## 4. Architecture Evolution Across the Four Weeks
 
 The system was developed iteratively over four weeks, shifting from basic correctness to maintainability, then persistence, and finally production readiness:
