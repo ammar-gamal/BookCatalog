@@ -102,14 +102,14 @@ jobs:
             - name: Login to Azure
               uses: azure/login@v2
               with:
-                client-id: ${{ secrets.AZURE_CLIENT_ID }}
-                tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-                subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+                client-id: ${{ vars.AZURE_PIPELINE_CLIENT_ID }}
+                tenant-id: ${{ vars.AZURE_TENANT_ID }}
+                subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
             - name: Azure SQL Server and Database Provisioning
               id: provision
               run: | 
                 outputs=$(az deployment group create \
-                --resource-group ${{ vars.RESOURCE_GROUP }} \
+                --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
                 --template-file ./infra/azsql.bicep \
                 --parameters \
                   sqlServerPrincipleType="${{ vars.SQL_SERVER_ENTRA_ADMIN_PRINCIPAL_TYPE }}" \
@@ -134,9 +134,9 @@ jobs:
         - name: Login to Azure
           uses: azure/login@v2
           with:
-            client-id: ${{ secrets.AZURE_CLIENT_ID }}
-            tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-            subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+            client-id: ${{ vars.AZURE_PIPELINE_CLIENT_ID }}
+            tenant-id: ${{ vars.AZURE_TENANT_ID }}
+            subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         - name: Run EF Core Migration Bundle
           env:
             ConnectionStrings__Database: ${{ needs.deploy-sql.outputs.connectionString }}
@@ -162,15 +162,15 @@ jobs:
         - name: Login to Azure
           uses: azure/login@v2
           with:
-            client-id: ${{ secrets.AZURE_CLIENT_ID }}
-            tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-            subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+            client-id: ${{ vars.AZURE_PIPELINE_CLIENT_ID }}
+            tenant-id: ${{ vars.AZURE_TENANT_ID }}
+            subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
         - name: Deploy managed identity
           id: deploy-identity
           run: |
             outputs=$(az deployment group create \
-              --resource-group ${{ vars.RESOURCE_GROUP }} \
+              --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
               --template-file ./infra/identity.bicep \
               --parameters \
                 applicationName="${{ vars.APP_NAME }}" \
@@ -197,13 +197,13 @@ jobs:
             - name: Login to Azure
               uses: azure/login@v2
               with:
-                client-id: ${{ secrets.AZURE_CLIENT_ID }}
-                tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-                subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+                client-id: ${{ vars.AZURE_PIPELINE_CLIENT_ID }}
+                tenant-id: ${{ vars.AZURE_TENANT_ID }}
+                subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
             - name: Deploy Application to Azure Container App
               run: |
                az deployment group create \
-               --resource-group ${{vars.RESOURCE_GROUP}} \
+               --resource-group ${{vars.AZURE_RESOURCE_GROUP}} \
                --template-file ./infra/app.bicep \
                --parameters \
                 apiImage="${{ env.API_IMAGE }}" \
