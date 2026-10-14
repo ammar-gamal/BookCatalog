@@ -31,11 +31,31 @@ jobs:
             - name: Publish Application
               run: dotnet publish ./src/BookCatalog.API/BookCatalog.API.csproj -c Release --no-build -o ./infra/publish
 
+            - name: Generate Migration Bundle
+              run: |
+                dotnet tool install --global dotnet-ef --version 10.*
+                echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+                dotnet ef migrations bundle \
+                  --project ./src/BookCatalog.API/BookCatalog.API.csproj \
+                  --startup-project ./src/BookCatalog.API/BookCatalog.API.csproj \
+                  --self-contained \
+                  --target-runtime linux-x64 \
+                  --configuration Release \
+                  --output ./infra/efbundle \
+                  --force
+
             - name: Upload Publish Output
               uses: actions/upload-artifact@v4
               with:
                 name: api-publish
                 path: ./infra/publish/
+                if-no-files-found: error
+                retention-days: 1
+            - name: Upload Migration Bundle
+              uses: actions/upload-artifact@v4
+              with:
+                name: migration-bundle
+                path: ./infra/efbundle
                 if-no-files-found: error
                 retention-days: 1
     docker:
