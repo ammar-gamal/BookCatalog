@@ -6,7 +6,9 @@ on:
 env:
     API_IMAGE: ${{ secrets.DOCKER_USERNAME }}/bookcatalog-api:${{ github.sha }}
 
-
+permissions:
+    id-token: write  
+    contents: read
 jobs:
     build-test-publish:
         name: Build, Test and Publish
@@ -89,9 +91,6 @@ jobs:
     deploy-sql: 
         name: Deploy SQL Server and Database 
         runs-on: ubuntu-latest
-        permissions:
-          id-token: write  
-          contents: read
         outputs:
           sqlServerFqdn: ${{ steps.provision.outputs.sqlServerFqdn }}
           databaseName: ${{ steps.provision.outputs.databaseName }}
@@ -124,9 +123,6 @@ jobs:
     migrate-database:
       needs: deploy-sql
       runs-on: ubuntu-latest
-      permissions:
-          id-token: write  
-          contents: read
       steps:
         - name: Checkout Code
           uses: actions/checkout@v4
@@ -149,3 +145,69 @@ jobs:
             ./efbundle \
               --connection "$ConnectionStrings__Database" \
               --verbose
+    
+    deploy-app-identity:
+      needs: deploy-sql
+      runs-on: ubuntu-latest
+
+      outputs:
+        identityName: ${{ steps.deploy-identity.outputs.identityName}}
+        identityId: ${{ steps.deploy-identity.outputs.identityId}}
+        identityPrincipalId: ${{ steps.deploy-identity.outputs.identityPrincipalId}}
+        identityClientId: ${{ steps.deploy-identity.outputs.identityClientId}}
+      steps:
+        - name: Checkout Code
+          uses: actions/checkout@v4
+
+        - name: Login to Azure
+          uses: azure/login@v2
+          with:
+            client-id: ${{ secrets.AZURE_CLIENT_ID }}
+            tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+            subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+        - name: Deploy managed identity
+          id: deploy-identity
+          run: |
+            outputs=$(az deployment group create \
+              --resource-group ${{ vars.RESOURCE_GROUP }} \
+              --template-file ./infra/identity.bicep \
+              --parameters \
+                applicationName="${{ vars.APP_NAME }}" \
+              --query properties.outputs -o json)
+            echo "identityName=$(echo "$outputs" | jq -r .identityName.value)" >> "$GITHUB_OUTPUT"
+            echo "identityId=$(echo "$outputs" | jq -r .identityId.value)" >> "$GITHUB_OUTPUT"
+            echo "identityPrincipalId=$(echo "$outputs" | jq -r .identityPrincipalId.value)" >> "$GITHUB_OUTPUT"
+            echo "identityClientId=$(echo "$outputs" | jq -r .identityClientId.value)" >> "$GITHUB_OUTPUT"
+                 
+        - name: Create a database login for the managed identity
+          uses: azure/sql-action@v2.3
+          with:
+            connection-string: ${{ needs.deploy-sql.outputs.connectionString }}
+            path: ./infra/grant-managed-identity.sql
+            arguments: '-v IdentityName="${{ steps.deploy-identity.outputs.identityName }}"'
+
+            
+    deploy-app:
+        needs: [deploy-sql,deploy-app-identity, migrate-database]
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+            - name: Login to Azure
+              uses: azure/login@v2
+              with:
+                client-id: ${{ secrets.AZURE_CLIENT_ID }}
+                tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+                subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+            - name: Deploy Application to Azure Container App
+              run: |
+               az deployment group create \
+               --resource-group ${{vars.RESOURCE_GROUP}} \
+               --template-file ./infra/app.bicep \
+               --parameters \
+                apiImage="${{ env.API_IMAGE }}" \
+                applicationName="${{ vars.APP_NAME }}" \
+                connectionString="${{ needs.deploy-sql.outputs.connectionString }}" \
+                applicationManagedIdentityId="${{needs.deploy-app-identity.outputs.identityId}}"
+          
