@@ -86,3 +86,62 @@ jobs:
             context: ./infra
             push: true
             tags: ${{ env.API_IMAGE }}
+    deploy-sql: 
+        name: Deploy SQL Server and Database 
+        runs-on: ubuntu-latest
+        permissions:
+          id-token: write  
+          contents: read
+        outputs:
+          sqlServerFqdn: ${{ steps.provision.outputs.sqlServerFqdn }}
+          databaseName: ${{ steps.provision.outputs.databaseName }}
+          connectionString: ${{ steps.provision.outputs.connectionString }}
+        needs: docker
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+            - name: Login to Azure
+              uses: azure/login@v2
+              with:
+                client-id: ${{ secrets.AZURE_CLIENT_ID }}
+                tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+                subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+            - name: Azure SQL Server and Database Provisioning
+              id: provision
+              run: | 
+                outputs=$(az deployment group create \
+                --resource-group ${{ vars.RESOURCE_GROUP }} \
+                --template-file ./infra/azsql.bicep \
+                --parameters \
+                  sqlServerPrincipleType="${{ vars.SQL_SERVER_ENTRA_ADMIN_PRINCIPAL_TYPE }}" \
+                  sqlServerAdminLogin="${{ vars.SQL_SERVER_ENTRA_ADMIN_LOGIN }}" \
+                  sqlServerAdminObjectId="${{ vars.SQL_SERVER_ENTRA_ADMIN_OBJECT_ID }}" \
+                  applicationName="${{ vars.APP_NAME }}" \
+                --query properties.outputs -o json)
+                echo "sqlServerFqdn=$(echo "$outputs" | jq -r .sqlServerFqdn.value)" >> "$GITHUB_OUTPUT"
+                echo "databaseName=$(echo "$outputs" | jq -r .databaseName.value)" >> "$GITHUB_OUTPUT"
+                echo "connectionString=$(echo "$outputs" | jq -r .connectionString.value)" >> "$GITHUB_OUTPUT"
+    migrate-database:
+      needs: deploy-sql
+      runs-on: ubuntu-latest
+      permissions:
+          id-token: write  
+          contents: read
+      steps:
+        - name: Download Publish Artifact
+          uses: actions/download-artifact@v4
+          with:
+            name: migration-bundle
+            path: .
+        - name: Login to Azure
+          uses: azure/login@v2
+          with:
+            client-id: ${{ secrets.AZURE_CLIENT_ID }}
+            tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+            subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        - name: Run EF Core Migration Bundle
+          run: |  
+            chmod +x ./efbundle
+            ./efbundle \
+              --connection "${{ needs.deploy-sql.outputs.connectionString }}" \
+              --verbose                
