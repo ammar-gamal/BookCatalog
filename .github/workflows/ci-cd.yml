@@ -179,13 +179,30 @@ jobs:
             echo "identityId=$(echo "$outputs" | jq -r .identityId.value)" >> "$GITHUB_OUTPUT"
             echo "identityPrincipalId=$(echo "$outputs" | jq -r .identityPrincipalId.value)" >> "$GITHUB_OUTPUT"
             echo "identityClientId=$(echo "$outputs" | jq -r .identityClientId.value)" >> "$GITHUB_OUTPUT"
-                 
+      
         - name: Create a database login for the managed identity
           uses: azure/sql-action@v2.3
           with:
             connection-string: ${{ needs.deploy-sql.outputs.connectionString }}
             path: ./infra/grant-managed-identity.sql
             arguments: '-v IdentityName="${{ steps.deploy-identity.outputs.identityName }}"'
+        - name: Log SQL grant inputs
+          shell: bash
+          env:
+            SQL_SERVER: ${{ needs.deploy-sql.outputs.sqlServerFqdn }}
+            DATABASE_NAME: ${{ needs.deploy-sql.outputs.databaseName }}
+            IDENTITY_NAME: ${{ steps.deploy-identity.outputs.identityName }}
+            IDENTITY_PRINCIPAL_ID: ${{ steps.deploy-identity.outputs.identityPrincipalId }}
+          run: |
+            set -euo pipefail
+
+            echo "SQL server: $SQL_SERVER"
+            echo "Database: $DATABASE_NAME"
+            echo "Identity name: $IDENTITY_NAME"
+            echo "Identity principal ID: $IDENTITY_PRINCIPAL_ID"
+
+            test -n "$IDENTITY_NAME"
+            test -n "$IDENTITY_PRINCIPAL_ID"
 
             
     deploy-app:
