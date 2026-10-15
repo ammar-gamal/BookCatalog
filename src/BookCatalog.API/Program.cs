@@ -43,9 +43,9 @@ public class Program
             // Strongly-Typed Configuration Validation (Fail-Fast on Start)
             // -------------------------------------------------------------
             builder.Services.AddOptions<DatabaseOptions>()
-                .Bind(builder.Configuration.GetSection(DatabaseOptions.SectionName));
-            //.ValidateOnStart();
-            //builder.Services.AddSingleton<IValidateOptions<DatabaseOptions>, DatabaseOptionsValidations>();
+                .Bind(builder.Configuration.GetSection(DatabaseOptions.SectionName))
+                .ValidateOnStart();
+            builder.Services.AddSingleton<IValidateOptions<DatabaseOptions>, DatabaseOptionsValidations>();
 
             // -------------------------------------------------------------
             // Centralized Error Handling & ProblemDetails
