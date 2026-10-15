@@ -71,7 +71,7 @@ public class Program
                 options.UseSqlServer(dbOptions.ConnectionString, sqlOptions =>
                 {
                     sqlOptions.EnableRetryOnFailure(
-                        maxRetryCount: 6,
+                        maxRetryCount: 10,
                         maxRetryDelay: TimeSpan.FromSeconds(10),
                         errorNumbersToAdd: null
                     );
