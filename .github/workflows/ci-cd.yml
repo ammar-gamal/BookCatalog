@@ -208,6 +208,10 @@ jobs:
     deploy-app:
         needs: [deploy-sql,deploy-app-identity, migrate-database]
         runs-on: ubuntu-latest
+        env:
+          SQL_SERVER_FQDN: ${{ needs.deploy-sql.outputs.sqlServerFqdn }}
+          SQL_DATABASE_NAME: ${{ needs.deploy-sql.outputs.databaseName }}
+          IDENTITY_CLIENT_ID: ${{ needs.deploy-app-identity.outputs.identityClientId }}
         steps:
             - name: Checkout Code
               uses: actions/checkout@v4
@@ -219,12 +223,14 @@ jobs:
                 subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
             - name: Deploy Application to Azure Container App
               run: |
+               CONNECTION_STRING="Server=tcp:${SQL_SERVER_FQDN},1433;Database=${SQL_DATABASE_NAME};Authentication=Active Directory Managed Identity;User Id=${IDENTITY_CLIENT_ID};Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+
                az deployment group create \
                --resource-group ${{vars.AZURE_RESOURCE_GROUP}} \
                --template-file ./infra/app.bicep \
                --parameters \
                 apiImage="${{ env.API_IMAGE }}" \
                 applicationName="${{ vars.APP_NAME }}" \
-                connectionString="${{ needs.deploy-sql.outputs.connectionString }}" \
+                connectionString="$CONNECTION_STRING" \
                 applicationManagedIdentityId="${{needs.deploy-app-identity.outputs.identityId}}"
           
