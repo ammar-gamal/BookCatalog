@@ -27,6 +27,9 @@ param sqlServerAdminObjectId string
 resource sqlServer 'Microsoft.Sql/servers@2025-01-01' = {
   name: sqlServerName
   location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     administrators: {
       administratorType: 'ActiveDirectory'
@@ -44,6 +47,7 @@ resource sqlServer 'Microsoft.Sql/servers@2025-01-01' = {
 resource sqlFirewall 'Microsoft.Sql/servers/firewallRules@2023-05-01-preview' = {
   parent: sqlServer
   name: 'AllowAllWindowsAzureIps'
+
   // name: 'AllowAll"'
   properties: {
     startIpAddress: '0.0.0.0'
@@ -66,5 +70,6 @@ resource database 'Microsoft.Sql/servers/databases@2025-01-01' = {
 }
 
 output sqlServerFqdn string = sqlServer.properties.fullyQualifiedDomainName
+output identityPrincipalId string = sqlServer.identity.principalId
 output databaseName string = database.name
 output connectionString string = 'Server=tcp:${sqlServer.properties.fullyQualifiedDomainName},1433;Database=${database.name};Authentication=Active Directory Default;'

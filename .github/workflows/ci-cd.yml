@@ -120,6 +120,40 @@ jobs:
                 echo "sqlServerFqdn=$(echo "$outputs" | jq -r .sqlServerFqdn.value)" >> "$GITHUB_OUTPUT"
                 echo "databaseName=$(echo "$outputs" | jq -r .databaseName.value)" >> "$GITHUB_OUTPUT"
                 echo "connectionString=$(echo "$outputs" | jq -r .connectionString.value)" >> "$GITHUB_OUTPUT"
+                echo "identityPrincipalId=$(echo "$outputs" | jq -r .identityPrincipalId.value)" >> "$GITHUB_OUTPUT"
+            - name: Assign Directory Readers role to SQL Server identity
+              env:
+                PRINCIPAL_ID: ${{ steps.provision.outputs.identityPrincipalId }}
+              run: |
+                
+                DIRECTORY_READERS_ROLE_ID="88d8e3e3-8f55-4a1e-953a-9b9898b8876b"
+                GRAPH_URL="https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments"
+
+                # Skip if already assigned (keeps reruns idempotent)
+                existing=$(az rest --method GET \
+                  --uri "$GRAPH_URL?\$filter=principalId eq '$PRINCIPAL_ID' and roleDefinitionId eq '$DIRECTORY_READERS_ROLE_ID'" \
+                  --query "value | length(@)" -o tsv)
+
+                if [ "$existing" != "0" ]; then
+                  echo "Directory Readers already assigned to $PRINCIPAL_ID"
+                  exit 0
+                fi
+
+                # Retry because a newly created identity can take a moment to replicate in Entra ID
+                for attempt in 1 2 3 4 5 6; do
+                  if az rest --method POST \
+                    --uri "$GRAPH_URL" \
+                    --headers "Content-Type=application/json" \
+                    --body "{\"principalId\":\"$PRINCIPAL_ID\",\"roleDefinitionId\":\"$DIRECTORY_READERS_ROLE_ID\",\"directoryScopeId\":\"/\"}"; then
+                    echo "Directory Readers assigned to $PRINCIPAL_ID"
+                    exit 0
+                  fi
+                  echo "Attempt $attempt failed, retrying in 20s..."
+                  sleep 20
+                done
+
+                echo "Failed to assign Directory Readers role"
+                exit 1
     migrate-database:
       needs: deploy-sql
       runs-on: ubuntu-latest
@@ -223,7 +257,7 @@ jobs:
                 subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
             - name: Deploy Application to Azure Container App
               run: |
-               CONNECTION_STRING="Server=tcp:${SQL_SERVER_FQDN},1433;Database=${SQL_DATABASE_NAME};Authentication=Active Directory Managed Identity;User Id=${IDENTITY_CLIENT_ID};Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+               CONNECTION_STRING="Server=tcp:${SQL_SERVER_FQDN},1433;Database=${SQL_DATABASE_NAME};Authentication=Active Directory Managed Identity;User Id=${IDENTITY_CLIENT_ID};"
 
                az deployment group create \
                --resource-group ${{vars.AZURE_RESOURCE_GROUP}} \
