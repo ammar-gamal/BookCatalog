@@ -220,24 +220,6 @@ jobs:
             connection-string: ${{ needs.deploy-sql.outputs.connectionString }}
             path: ./infra/grant-managed-identity.sql
             arguments: '-v IdentityName="${{ steps.deploy-identity.outputs.identityName }}"'
-        - name: Log SQL grant inputs
-          shell: bash
-          env:
-            SQL_SERVER: ${{ needs.deploy-sql.outputs.sqlServerFqdn }}
-            DATABASE_NAME: ${{ needs.deploy-sql.outputs.databaseName }}
-            IDENTITY_NAME: ${{ steps.deploy-identity.outputs.identityName }}
-            IDENTITY_PRINCIPAL_ID: ${{ steps.deploy-identity.outputs.identityPrincipalId }}
-          run: |
-            set -euo pipefail
-
-            echo "SQL server: $SQL_SERVER"
-            echo "Database: $DATABASE_NAME"
-            echo "Identity name: $IDENTITY_NAME"
-            echo "Identity principal ID: $IDENTITY_PRINCIPAL_ID"
-
-            test -n "$IDENTITY_NAME"
-            test -n "$IDENTITY_PRINCIPAL_ID"
-
             
     deploy-app:
         needs: [deploy-sql,deploy-app-identity, migrate-database]
