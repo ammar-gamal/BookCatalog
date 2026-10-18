@@ -3,6 +3,9 @@ on:
     push:
         branches:
             - pipeline 
+        paths-ignore:
+            - 'docs/**'
+            - '**/*.md'
 env:
     API_IMAGE: ${{ secrets.DOCKER_USERNAME }}/bookcatalog-api:${{ github.sha }}
 
