@@ -20,9 +20,7 @@ param sqlServerPrincipleType string
 param sqlServerAdminLogin string
 
 @description('ObjectId will be the Entra Admin To Azure SQL Database')
-param sqlServerAdminObjectId string 
-
-
+param sqlServerAdminObjectId string
 
 resource sqlServer 'Microsoft.Sql/servers@2025-01-01' = {
   name: sqlServerName
@@ -66,6 +64,7 @@ resource database 'Microsoft.Sql/servers/databases@2025-01-01' = {
   properties: {
     freeLimitExhaustionBehavior: 'AutoPause'
     useFreeLimit: true
+    autoPauseDelay: -1
   }
 }
 
