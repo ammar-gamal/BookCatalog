@@ -58,13 +58,8 @@ resource database 'Microsoft.Sql/servers/databases@2025-01-01' = {
   name: '${applicationName}-db'
   location: location
   sku: {
-    name: 'GP_S_Gen5_2'
-    tier: 'GeneralPurpose'
-  }
-  properties: {
-    freeLimitExhaustionBehavior: 'AutoPause'
-    useFreeLimit: true
-    autoPauseDelay: -1
+    name: 'Basic'
+    tier: 'Basic'
   }
 }
 
