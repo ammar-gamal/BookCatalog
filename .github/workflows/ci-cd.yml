@@ -207,7 +207,7 @@ jobs:
           with:
             connection-string: ${{ needs.deploy-sql.outputs.connectionString }}
             path: ./infra/scripts/create-db-user-and-grant-roles.sql
-            arguments: '-v IdentityName="${{ steps.deploy-identity.outputs.identityName }}"'
+            arguments: '-v IdentityName="${{ steps.deploy-identity.outputs.identityName }}" IdentityObjectId="${{ steps.deploy-identity.outputs.identityPrincipalId }}"'
             
     deploy-app:
         if: github.event_name == 'push'
