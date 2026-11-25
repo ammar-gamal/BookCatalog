@@ -3,9 +3,12 @@ using BookCatalog.API.Entities;
 using BookCatalog.API.Entities.Enums;
 using BookCatalog.API.Repositories.Interfaces;
 using BookCatalog.API.Services;
+using BookCatalog.API.Services.Interfaces;
+using BookCatalog.API.Services.ServiceResults;
 using BookCatalog.API.Utilities.Normalizers;
 using BookCatalog.API.Utilities.Results;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using MockQueryable;
@@ -19,6 +22,7 @@ public class BookServiceTests
     private readonly Mock<ILogger<BookService>> _loggerMock;
     private readonly Mock<IBaseRepository<Author>> _authorRepositoryMock;
     private readonly Mock<ILoanRepository> _loanRepositoryMock;
+    private readonly Mock<IFileService> _fileServiceMock;
     private readonly FakeTimeProvider _timeProvider;
     private readonly BookService _sut;
     private readonly DateTime _fixedUtcNow = new(2026, 8, 20, 12, 0, 0);
@@ -29,6 +33,7 @@ public class BookServiceTests
         _loggerMock = new Mock<ILogger<BookService>>();
         _authorRepositoryMock = new Mock<IBaseRepository<Author>>();
         _loanRepositoryMock = new Mock<ILoanRepository>();
+        _fileServiceMock = new Mock<IFileService>();
         _timeProvider = new FakeTimeProvider();
         _timeProvider.SetUtcNow(_fixedUtcNow);
 
@@ -37,7 +42,8 @@ public class BookServiceTests
             _timeProvider,
             _loggerMock.Object,
             _authorRepositoryMock.Object,
-            _loanRepositoryMock.Object);
+            _loanRepositoryMock.Object,
+            _fileServiceMock.Object);
     }
 
     #region CreateAsync Tests
@@ -128,6 +134,11 @@ public class BookServiceTests
         // Arrange
         var request = CreateValidCreateBookRequestDto();
         int expectedId = 1;
+        var uploadResult = new UploadFileResult
+        {
+            FileName = "uploaded-blob.jpg",
+            FileURL = "https://storage.blob.core.windows.net/covers/uploaded-blob.jpg"
+        };
 
         _bookRepositoryMock
             .Setup(r => r.IsIsbnTakenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -136,6 +147,10 @@ public class BookServiceTests
         _authorRepositoryMock
             .Setup(r => r.ExistsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+
+        _fileServiceMock
+            .Setup(f => f.UploadAsync(request.CoverPhoto, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(uploadResult);
 
         _bookRepositoryMock
             .Setup(r => r.AddAsync(It.IsAny<Book>(), It.IsAny<CancellationToken>()))
@@ -149,6 +164,11 @@ public class BookServiceTests
         result.IsSuccess.Should().BeTrue();
         result.Data.Should().NotBeNull();
         result.Data.Id.Should().Be(expectedId);
+        result.Data.CoverPhotoURL.Should().Be(uploadResult.FileURL);
+
+        _fileServiceMock.Verify(
+            f => f.UploadAsync(request.CoverPhoto, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()),
+            Times.Once);
 
         _bookRepositoryMock.Verify(
             r => r.AddAsync(It.Is<Book>(b =>
@@ -159,10 +179,49 @@ public class BookServiceTests
                 b.Price == request.Price &&
                 b.Genre == request.Genre &&
                 b.PublicationDate == request.PublicationDate &&
-                b.Description == request.Description),
+                b.Description == request.Description &&
+                b.CoverPhoto == uploadResult.FileName),
             It.IsAny<CancellationToken>()),
             Times.Once);
         _bookRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenSaveChangesAsyncFails_DeletesUploadedBlobAndRethrows()
+    {
+        // Arrange
+        var request = CreateValidCreateBookRequestDto();
+        var uploadResult = new UploadFileResult
+        {
+            FileName = "uploaded-blob.jpg",
+            FileURL = "https://storage.blob.core.windows.net/covers/uploaded-blob.jpg"
+        };
+
+        _bookRepositoryMock
+            .Setup(r => r.IsIsbnTakenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        _authorRepositoryMock
+            .Setup(r => r.ExistsAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        _fileServiceMock
+            .Setup(f => f.UploadAsync(request.CoverPhoto, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(uploadResult);
+
+        _bookRepositoryMock
+            .Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Exception("Database save failed"));
+
+        // Act
+        Func<Task> act = () => _sut.CreateAsync(request, TestContext.Current.CancellationToken);
+
+        // Assert
+        await act.Should().ThrowAsync<Exception>().WithMessage("Database save failed");
+
+        _fileServiceMock.Verify(
+            f => f.DeleteAsync(uploadResult.FileName, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     #endregion
@@ -368,6 +427,134 @@ public class BookServiceTests
 
     #endregion
 
+    #region UpdateCoverPhotoAsync Tests
+
+    [Fact]
+    public async Task UpdateCoverPhotoAsync_WhenBookDoesNotExist_ReturnsNotFoundError()
+    {
+        // Arrange
+        int bookId = 99;
+        var request = CreateValidUpdateCoverPhotoRequestDto();
+
+        _bookRepositoryMock
+            .Setup(r => r.GetByIdAsync(bookId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Book?)null);
+
+        // Act
+        var result = await _sut.UpdateCoverPhotoAsync(bookId, request, TestContext.Current.CancellationToken);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.Error.Type.Should().Be(ErrorType.NotFound);
+
+        _fileServiceMock.Verify(
+            f => f.UploadAsync(It.IsAny<IFormFile>(), It.IsAny<BlobCategory>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _fileServiceMock.Verify(
+            f => f.DeleteAsync(It.IsAny<string>(), It.IsAny<BlobCategory>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _bookRepositoryMock.Verify(
+            r => r.Update(It.IsAny<Book>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateCoverPhotoAsync_AllValid_UploadsNewPhotoSavesDbDeletesOldPhotoAndReturnsUpdatedBookDto()
+    {
+        // Arrange
+        int bookId = 1;
+        string oldPhotoName = "old-cover.jpg";
+        var existingBook = CreateExistingBookEntity(bookId, coverPhoto: oldPhotoName);
+        var request = CreateValidUpdateCoverPhotoRequestDto();
+
+        var newUploadResult = new UploadFileResult
+        {
+            FileName = "new-cover-blob.jpg",
+            FileURL = "https://storage.blob.core.windows.net/covers/new-cover-blob.jpg"
+        };
+
+        _bookRepositoryMock
+            .Setup(r => r.GetByIdAsync(bookId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingBook);
+
+        var sequence = new MockSequence();
+        _fileServiceMock.InSequence(sequence)
+            .Setup(f => f.UploadAsync(request.CoverPhoto, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(newUploadResult);
+
+        _bookRepositoryMock.InSequence(sequence)
+            .Setup(r => r.Update(existingBook));
+
+        _bookRepositoryMock.InSequence(sequence)
+            .Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        _fileServiceMock.InSequence(sequence)
+            .Setup(f => f.DeleteAsync(oldPhotoName, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        // Act
+        var result = await _sut.UpdateCoverPhotoAsync(bookId, request, TestContext.Current.CancellationToken);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Data.Should().NotBeNull();
+        result.Data.CoverPhotoURL.Should().Be(newUploadResult.FileURL);
+        existingBook.CoverPhoto.Should().Be(newUploadResult.FileName);
+
+        _fileServiceMock.Verify(
+            f => f.UploadAsync(request.CoverPhoto, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()),
+            Times.Once);
+        _bookRepositoryMock.Verify(r => r.Update(existingBook), Times.Once);
+        _bookRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _fileServiceMock.Verify(
+            f => f.DeleteAsync(oldPhotoName, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateCoverPhotoAsync_WhenSaveChangesAsyncFails_DeletesNewlyUploadedBlobAndRethrows()
+    {
+        // Arrange
+        int bookId = 1;
+        string oldPhotoName = "old-cover.jpg";
+        var existingBook = CreateExistingBookEntity(bookId, coverPhoto: oldPhotoName);
+        var request = CreateValidUpdateCoverPhotoRequestDto();
+
+        var newUploadResult = new UploadFileResult
+        {
+            FileName = "new-cover-blob.jpg",
+            FileURL = "https://storage.blob.core.windows.net/covers/new-cover-blob.jpg"
+        };
+
+        _bookRepositoryMock
+            .Setup(r => r.GetByIdAsync(bookId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existingBook);
+
+        _fileServiceMock
+            .Setup(f => f.UploadAsync(request.CoverPhoto, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(newUploadResult);
+
+        _bookRepositoryMock
+            .Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Exception("Database save failed"));
+
+        // Act
+        Func<Task> act = () => _sut.UpdateCoverPhotoAsync(bookId, request, TestContext.Current.CancellationToken);
+
+        // Assert
+        await act.Should().ThrowAsync<Exception>().WithMessage("Database save failed");
+
+        _fileServiceMock.Verify(
+            f => f.DeleteAsync(newUploadResult.FileName, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()),
+            Times.Once);
+        _fileServiceMock.Verify(
+            f => f.DeleteAsync(oldPhotoName, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    #endregion
+
     #region DeleteAsync Tests
 
     [Fact]
@@ -427,7 +614,7 @@ public class BookServiceTests
     {
         // Arrange
         int bookId = 1;
-        var existingBook = CreateExistingBookEntity(bookId);
+        var existingBook = CreateExistingBookEntity(bookId, coverPhoto: "book-cover.jpg");
 
         _bookRepositoryMock
             .Setup(r => r.GetByIdAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
@@ -437,8 +624,10 @@ public class BookServiceTests
             .Setup(r => r.BookHasActiveLoanAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
-        _bookRepositoryMock
-            .Setup(r => r.Delete(existingBook));
+        var sequence = new MockSequence();
+        _bookRepositoryMock.InSequence(sequence).Setup(r => r.Delete(existingBook));
+        _bookRepositoryMock.InSequence(sequence).Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _fileServiceMock.InSequence(sequence).Setup(f => f.DeleteAsync(existingBook.CoverPhoto, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         // Act
         var result = await _sut.DeleteAsync(bookId, TestContext.Current.CancellationToken);
@@ -446,10 +635,9 @@ public class BookServiceTests
         // Assert
         result.IsSuccess.Should().BeTrue();
 
-        _bookRepositoryMock.Verify(
-            r => r.Delete(existingBook),
-            Times.Once);
+        _bookRepositoryMock.Verify(r => r.Delete(existingBook), Times.Once);
         _bookRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _fileServiceMock.Verify(f => f.DeleteAsync(existingBook.CoverPhoto, BlobCategory.CoverPhoto, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -612,6 +800,14 @@ public class BookServiceTests
 
     #region Helper Methods
 
+    private static IFormFile CreateMockFormFile(string fileName = "cover.jpg", string contentType = "image/jpeg")
+    {
+        var fileMock = new Mock<IFormFile>();
+        fileMock.Setup(f => f.FileName).Returns(fileName);
+        fileMock.Setup(f => f.ContentType).Returns(contentType);
+        return fileMock.Object;
+    }
+
     private CreateBookRequestDto CreateValidCreateBookRequestDto() => new()
     {
         Title = ".NET 10",
@@ -620,7 +816,8 @@ public class BookServiceTests
         Price = 99.99m,
         Genre = BookGenre.Science,
         PublicationDate = DateOnly.FromDateTime(_fixedUtcNow.AddDays(-10)),
-        Description = "Intensive .NET"
+        Description = "Intensive .NET",
+        CoverPhoto = CreateMockFormFile()
     };
 
     private UpdateBookRequestDto CreateValidUpdateBookRequestDto() => new()
@@ -634,7 +831,12 @@ public class BookServiceTests
         Description = "Updated Intensive .NET"
     };
 
-    private Book CreateExistingBookEntity(int id, int authorId = 10, string isbn = "12-3-4-5-789") => new()
+    private UpdateCoverPhotoRequestDto CreateValidUpdateCoverPhotoRequestDto() => new()
+    {
+        CoverPhoto = CreateMockFormFile("new-cover.png", "image/png")
+    };
+
+    private Book CreateExistingBookEntity(int id, int authorId = 10, string isbn = "12-3-4-5-789", string coverPhoto = "cover-123.jpg") => new()
     {
         Id = id,
         Title = "How to become SW at Akvelon in 2026",
@@ -644,7 +846,8 @@ public class BookServiceTests
         Price = 50.00m,
         Genre = BookGenre.General,
         PublicationDate = DateOnly.FromDateTime(_fixedUtcNow.AddDays(-20)),
-        Description = "Tips and Trick in interviews"
+        Description = "Tips and Trick in interviews",
+        CoverPhoto = coverPhoto
     };
 
     #endregion
