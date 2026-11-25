@@ -1,8 +1,11 @@
 using BookCatalog.API.Dtos.Book;
 using BookCatalog.API.Dtos.Common;
+using BookCatalog.API.Entities;
 using BookCatalog.API.Entities.Enums;
+using BookCatalog.IntegrationTests.Helpers;
 using BookCatalog.IntegrationTests.Infrastructure;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -18,8 +21,10 @@ public class BookTests : IntegrationTestBase
         PropertyNameCaseInsensitive = true
     };
 
+
     public BookTests(BookCatalogWebApplicationFactory factory) : base(factory)
     {
+
     }
 
     #region Creation & Data Integrity Tests
@@ -32,7 +37,7 @@ public class BookTests : IntegrationTestBase
         // Arrange:
         var author = await SeedAsync(s => s.SeedAuthorAsync(ct: ct));
 
-        var request = new CreateBookRequestDto
+        var dto = new CreateBookRequestDto
         {
             AuthorId = author.Id,
             Title = "Refactoring",
@@ -42,19 +47,20 @@ public class BookTests : IntegrationTestBase
             Description = "Improving the Design of Existing Code",
             PublicationDate = new DateOnly(1999, 7, 8)
         };
+        using var content = ToFormData(dto, TestImages.ValidJpeg);
 
         // Act: 
-        var response = await _client.PostAsJsonAsync("/api/books", request, _jsonOptions, ct);
+        var response = await _client.PostAsync("/api/books", content, ct);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var created = await response.Content.ReadFromJsonAsync<BookDto>(_jsonOptions, ct);
         created.Should().NotBeNull();
         created!.Id.Should().BeGreaterThan(0);
-        created.Title.Should().Be(request.Title);
+        created.Title.Should().Be(dto.Title);
         created.AuthorId.Should().Be(author.Id);
-        created.Price.Should().Be(request.Price);
-        created.Genre.Should().Be(request.Genre);
+        created.Price.Should().Be(dto.Price);
+        created.Genre.Should().Be(dto.Genre);
 
         // Verify database persistence via GET endpoint
         var getResponse = await _client.GetAsync($"/api/books/{created.Id}", ct);
@@ -62,6 +68,10 @@ public class BookTests : IntegrationTestBase
         var fetched = await getResponse.Content.ReadFromJsonAsync<BookDto>(_jsonOptions, ct);
         fetched.Should().NotBeNull();
         fetched!.Id.Should().Be(created.Id);
+
+        //Verify blob creatted
+        var exists = await BlobExistsAsync(fetched.CoverPhotoURL.Split('/').Last(), BlobCategory.CoverPhoto);
+        exists.Should().BeTrue();
     }
 
     [Fact]
@@ -83,8 +93,8 @@ public class BookTests : IntegrationTestBase
             Genre = BookGenre.Fiction,
             PublicationDate = new DateOnly(2020, 1, 1)
         };
-
-        var response = await _client.PostAsJsonAsync("/api/books", duplicateRequest, _jsonOptions, ct);
+        using var content = ToFormData(duplicateRequest, TestImages.ValidJpeg);
+        var response = await _client.PostAsync("/api/books", content, ct);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -95,6 +105,7 @@ public class BookTests : IntegrationTestBase
     {
         var ct = TestContext.Current.CancellationToken;
 
+
         var request = new CreateBookRequestDto
         {
             AuthorId = 999999,
@@ -104,8 +115,9 @@ public class BookTests : IntegrationTestBase
             Genre = BookGenre.Fiction,
             PublicationDate = new DateOnly(2022, 1, 1)
         };
+        using var content = ToFormData(request, TestImages.ValidJpeg);
 
-        var response = await _client.PostAsJsonAsync("/api/books", request, _jsonOptions, ct);
+        var response = await _client.PostAsync("/api/books", content, ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -126,8 +138,9 @@ public class BookTests : IntegrationTestBase
             Genre = BookGenre.Science,
             PublicationDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(10))
         };
+        using var content = ToFormData(request, TestImages.ValidJpeg);
 
-        var response = await _client.PostAsJsonAsync("/api/books", request, _jsonOptions, ct);
+        var response = await _client.PostAsync("/api/books", content, ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -343,6 +356,32 @@ public class BookTests : IntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+
+    [Fact]
+    public async Task UpdateBookCoverPhoto_WithValidPhoto_Return200OkAndReplaceOldPhoto()
+    {
+        //Arrange
+        var ct = TestContext.Current.CancellationToken;
+        var existingCoverPhoto = await CreateBlobAsync(TestImages.ValidJpeg, BlobCategory.CoverPhoto);
+        var author = await SeedAsync(s => s.SeedAuthorAsync(ct: ct));
+        var existingBook = await SeedAsync(s => s.SeedBookAsync(author.Id, coverPhoto: existingCoverPhoto, isbn: "978-0-13-235088-4", ct: ct));
+
+        using var content = ToFormData(new UpdateCoverPhotoRequestDto(), TestImages.ValidPng);
+
+        //Act
+        var response = await _client.PutAsync($"/api/books/{existingBook.Id}/cover-photo", content, ct);
+
+        //Assert
+        var updated = await response.Content.ReadFromJsonAsync<BookDto>(_jsonOptions, ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        updated.Should().NotBeNull();
+
+
+        (await BlobExistsAsync(existingCoverPhoto, BlobCategory.CoverPhoto)).Should().BeFalse();
+        (await BlobExistsAsync(updated.CoverPhotoURL.Split('/').Last(), BlobCategory.CoverPhoto)).Should().BeTrue();
+
+    }
     #endregion
 
     #region Delete & Deletion Protection Operations
@@ -354,7 +393,13 @@ public class BookTests : IntegrationTestBase
 
         // Arrange
         var author = await SeedAsync(s => s.SeedAuthorAsync(ct: ct));
-        var book = await SeedAsync(s => s.SeedBookAsync(author.Id, ct: ct));
+        var coverPhoto = await CreateBlobAsync(TestImages.ValidPng, BlobCategory.CoverPhoto);
+
+        var book = await SeedAsync(s => s.SeedBookAsync(
+                                        author.Id,
+                                        coverPhoto: coverPhoto,
+                                        ct: ct));
+
 
         // Act
         var response = await _client.DeleteAsync($"/api/books/{book.Id}", ct);
@@ -365,6 +410,10 @@ public class BookTests : IntegrationTestBase
         // Verify book is removed from database
         var getResponse = await _client.GetAsync($"/api/books/{book.Id}", ct);
         getResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        // Verify cover photo is deleted
+        var exists = await BlobExistsAsync(coverPhoto, BlobCategory.CoverPhoto);
+        exists.Should().BeFalse();
     }
 
     [Fact]
@@ -373,7 +422,8 @@ public class BookTests : IntegrationTestBase
         var ct = TestContext.Current.CancellationToken;
 
         // Arrange
-        var seeded = await SeedAsync(s => s.SeedCompleteActiveLoanForBookAsync(ct));
+        var coverPhoto = await CreateBlobAsync(TestImages.ValidPng, BlobCategory.CoverPhoto);
+        var seeded = await SeedAsync(s => s.SeedCompleteActiveLoanForBookAsync(coverPhoto, ct));
 
         // Act
         var response = await _client.DeleteAsync($"/api/books/{seeded.Book.Id}", ct);
@@ -384,7 +434,13 @@ public class BookTests : IntegrationTestBase
         // Verify the book still remains intact
         var getResponse = await _client.GetAsync($"/api/books/{seeded.Book.Id}", ct);
         getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Verify cover photo is not deleted
+        var exists = await BlobExistsAsync(coverPhoto, BlobCategory.CoverPhoto);
+        exists.Should().BeTrue();
+
     }
 
     #endregion
+
 }

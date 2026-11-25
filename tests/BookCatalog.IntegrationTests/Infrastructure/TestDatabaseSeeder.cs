@@ -38,6 +38,7 @@ public class TestDatabaseSeeder
         BookGenre genre = BookGenre.Fiction,
         DateOnly? publicationDate = null,
         string? description = null,
+        string? coverPhoto = null,
         CancellationToken ct = default)
     {
         isbn ??= $"978{Guid.NewGuid():N}"[..13];
@@ -52,7 +53,8 @@ public class TestDatabaseSeeder
             Price = price,
             Genre = genre,
             PublicationDate = publicationDate ?? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-10)),
-            Description = description ?? "Test Description"
+            Description = description ?? "Test Description",
+            CoverPhoto = coverPhoto ?? $"{Guid.NewGuid()}.png"
         };
 
         _db.Books.Add(book);
@@ -113,10 +115,10 @@ public class TestDatabaseSeeder
     }
 
     public async Task<(Author Author, Book Book, BookCopy Copy, User User, Loan Loan)> SeedCompleteActiveLoanForBookAsync(
-        CancellationToken ct = default)
+        string? coverPhoto = null, CancellationToken ct = default)
     {
         var author = await SeedAuthorAsync(ct: ct);
-        var book = await SeedBookAsync(author.Id, ct: ct);
+        var book = await SeedBookAsync(author.Id, coverPhoto: coverPhoto, ct: ct);
         var copy = await SeedBookCopyAsync(book.Id, ct: ct);
         var user = await SeedUserAsync(ct: ct);
         var loan = await SeedActiveLoanAsync(copy.Id, user.Id, ct: ct);
