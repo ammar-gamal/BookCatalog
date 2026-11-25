@@ -11,6 +11,7 @@ public class Book : BaseEntity
     public decimal Price { get; set; }
     public string? Description { get; set; }
     public DateOnly PublicationDate { get; set; }
+    public string CoverPhoto { get; set; } = null!;
     public BookGenre Genre { get; set; }
     public int AuthorId { get; set; }
     public Author Author { get; set; } = null!;

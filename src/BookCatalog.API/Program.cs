@@ -1,3 +1,6 @@
+using Azure.Identity;
+using Azure.Storage.Blobs;
+using BookCatalog.API.Entities.Enums;
 using BookCatalog.API.Exceptions;
 using BookCatalog.API.Logging;
 using BookCatalog.API.Options;
@@ -45,6 +48,17 @@ public class Program
             builder.Services.AddOptions<DatabaseOptions>()
                 .Bind(builder.Configuration.GetSection(DatabaseOptions.SectionName))
                 .ValidateOnStart();
+            builder.Services.AddOptions<BlobStorageOptions>()
+                .Bind(builder.Configuration.GetSection(BlobStorageOptions.SectionName))
+                .ValidateOnStart();
+
+            builder.Services.AddOptions<BlobOptions>(BlobCategory.CoverPhoto.ToString())
+                            .Bind(builder.Configuration.GetSection(BlobOptions.CoverPhotoSection));
+
+            builder.Services.AddOptions<BlobOptions>(BlobCategory.BookSample.ToString())
+                            .Bind(builder.Configuration.GetSection(BlobOptions.BookSampleSection));
+
+            builder.Services.AddSingleton<IValidateOptions<BlobStorageOptions>, AzureBlobOptionsValidations>();
             builder.Services.AddSingleton<IValidateOptions<DatabaseOptions>, DatabaseOptionsValidations>();
 
             // -------------------------------------------------------------
@@ -96,6 +110,16 @@ public class Program
                 );
 
             // -------------------------------------------------------------
+            // Azure Services
+            // -------------------------------------------------------------
+            builder.Services.AddSingleton(sp =>
+            {
+                var options = sp.GetRequiredService<IOptions<BlobStorageOptions>>().Value;
+                return new BlobServiceClient(new Uri(options.Endpoint), new DefaultAzureCredential());
+            });
+
+
+            // -------------------------------------------------------------
             // Dependency Injection (Repositories & Services)
             // -------------------------------------------------------------
             builder.Services.AddSingleton(TimeProvider.System);
@@ -113,6 +137,9 @@ public class Program
             builder.Services.AddScoped<IBookCopyService, BookCopyService>();
             builder.Services.AddScoped<ILoanService, LoanService>();
             builder.Services.AddScoped<IUserService, UserService>();
+            builder.Services.AddSingleton<IFileService, BlobService>();
+
+
 
             // -------------------------------------------------------------
             // Controllers & API Documentation
