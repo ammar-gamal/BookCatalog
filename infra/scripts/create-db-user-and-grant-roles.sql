@@ -17,7 +17,9 @@ IF NOT EXISTS (
 BEGIN
     PRINT 'User does not exist. Creating database user...';
 
-    CREATE USER [$(IdentityName)] FROM EXTERNAL PROVIDER;
+    CREATE USER [$(IdentityName)]
+    FROM EXTERNAL PROVIDER
+    WITH OBJECT_ID = '$(IdentityObjectId)';
 
     PRINT 'CREATE USER completed.';
 END
