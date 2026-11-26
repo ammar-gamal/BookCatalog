@@ -8,8 +8,9 @@
 2. **Application Registration for the pipeline** — the pipeline will use this application to authenticate to Azure using OIDC and be configured for federated identity credential for GitHub.
 3. **Group for Azure SQL Entra administrators** — this group will contain my account and the pipeline application, so both of them can act as Entra administrators of the Azure SQL Server.
 4. **Permissions for the pipeline application:**
-   - Azure RBAC role: `Contributor`, to provision and manage Azure resources.
-   - Entra ID role: `Privileged Role Administrator`, to assign the Directory Readers role to the SQL Server identity.
+   - **Azure RBAC, `Contributor`** (scoped to the resource group): allows the pipeline to provision and manage the Azure resources.
+   - **Azure RBAC, `Role Based Access Control Administrator`** (scoped to the resource group): allows the pipeline to create role assignments for other identities, e.g. granting `Storage Blob Data Contributor` to the application's managed identity. `Contributor` cannot do this because it responsible for managing resources.
+   - **Entra ID role, `Privileged Role Administrator`**: allows the pipeline to assign the `Directory Readers` role to the SQL Server's managed identity, so the server can resolve Entra users and groups.
 
 ## Pipeline
 
