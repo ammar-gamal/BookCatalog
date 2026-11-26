@@ -125,7 +125,7 @@ jobs:
                 scope: resourceGroup
                 subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
                 resource-group-name: ${{ vars.AZURE_RESOURCE_GROUP }}
-                template-file: ./infra/azsql.bicep
+                template-file: ./infra/sql-database.bicep
                 parameters: |
                   {
                     "sqlServerPrincipleType": "${{ vars.SQL_SERVER_ENTRA_ADMIN_PRINCIPAL_TYPE }}",
@@ -237,7 +237,7 @@ jobs:
                 scope: resourceGroup
                 subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
                 resource-group-name: ${{ vars.AZURE_RESOURCE_GROUP }}
-                template-file: ./infra/app.bicep
+                template-file: ./infra/main.bicep
                 parameters: |
                   {
                     "apiImage": "${{ env.API_IMAGE }}",

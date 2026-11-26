@@ -6,7 +6,7 @@ param applicationManagedIdentityId string
 param applicationManagedIdentityPrincipalId string
 param applicationManagedIdentityClientId string
 
-module storage 'storageaccount.bicep' = {
+module storage 'storage-account.bicep' = {
   name: 'storageaccount'
   params: {
     location: location
