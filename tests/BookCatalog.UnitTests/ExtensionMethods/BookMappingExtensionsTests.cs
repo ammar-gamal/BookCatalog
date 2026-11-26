@@ -23,9 +23,9 @@ public class BookMappingExtensionsTests
             PublicationDate = new DateOnly(2000, 2, 2),
             Description = "Book Description"
         };
-
+        string coverPhotoName = "book.jpg";
         // Act
-        var result = dto.ToEntity(IsbnNormalizer.Normalize(dto.Isbn));
+        var result = dto.ToEntity(IsbnNormalizer.Normalize(dto.Isbn), coverPhotoName);
 
         // Assert
         result.Should().NotBeNull();
@@ -37,6 +37,7 @@ public class BookMappingExtensionsTests
         result.Genre.Should().Be(dto.Genre);
         result.PublicationDate.Should().Be(dto.PublicationDate);
         result.Description.Should().Be(dto.Description);
+        result.CoverPhoto.Should().Be(coverPhotoName);
     }
 
     [Fact]
@@ -52,11 +53,13 @@ public class BookMappingExtensionsTests
             Price = 9.99m,
             Genre = BookGenre.Fiction,
             PublicationDate = new DateOnly(2000, 2, 2),
-            Description = "Book Description"
+            Description = "Book Description",
+            CoverPhoto = "cover.jpg"
         };
+        string coverPhotoUrl = "https://storage.blob.core.windows.net/covers/cover.jpg";
 
         // Act
-        var result = entity.ToDto();
+        var result = entity.ToDto(coverPhotoUrl);
 
         // Assert
         result.Should().NotBeNull();
@@ -68,5 +71,6 @@ public class BookMappingExtensionsTests
         result.Genre.Should().Be(entity.Genre);
         result.PublicationDate.Should().Be(entity.PublicationDate);
         result.Description.Should().Be(entity.Description);
+        result.CoverPhotoURL.Should().Be(coverPhotoUrl);
     }
 }

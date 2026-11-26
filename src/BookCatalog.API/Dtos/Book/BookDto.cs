@@ -12,4 +12,5 @@ public record BookDto
     public string? Description { get; init; }
     public DateOnly PublicationDate { get; init; }
     public BookGenre Genre { get; init; }
+    public string CoverPhotoURL { get; init; } = null!;
 }

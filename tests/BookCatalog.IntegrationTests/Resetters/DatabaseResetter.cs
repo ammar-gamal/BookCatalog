@@ -3,7 +3,7 @@ using Respawn;
 using Respawn.Graph;
 using System.Data.Common;
 
-namespace BookCatalog.IntegrationTests.Infrastructure;
+namespace BookCatalog.IntegrationTests.Resetters;
 
 internal class DatabaseResetter : IAsyncDisposable
 {

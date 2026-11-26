@@ -1,6 +1,7 @@
 using BookCatalog.API.Dtos.Book;
 using BookCatalog.API.Dtos.Common;
 using BookCatalog.API.Entities;
+using BookCatalog.API.Entities.Enums;
 using BookCatalog.API.ExtensionMethods;
 using BookCatalog.API.ExtensionMethods.Mapping;
 using BookCatalog.API.Repositories.Interfaces;
@@ -18,19 +19,22 @@ public class BookService : IBookService
     private readonly IBaseRepository<Author> _authorRepository;
     private readonly ILoanRepository _loanRepository;
     private readonly TimeProvider _timeProvider;
+    private readonly IFileService _fileService;
     private readonly ILogger<BookService> _logger;
     public BookService(
-        IBookRepository bookRepository, 
-        TimeProvider timeProvider, 
-        ILogger<BookService> logger, 
+        IBookRepository bookRepository,
+        TimeProvider timeProvider,
+        ILogger<BookService> logger,
         IBaseRepository<Author> authorRepository,
-        ILoanRepository loanRepository)
+        ILoanRepository loanRepository,
+        IFileService fileService)
     {
         _bookRepository = bookRepository;
         _timeProvider = timeProvider;
         _logger = logger;
         _authorRepository = authorRepository;
         _loanRepository = loanRepository;
+        _fileService = fileService;
     }
     public async Task<Result<PagedList<BookDto>>> GetAllAsync(BookFilterQueryParameters paramters, CancellationToken ct = default)
     {
@@ -84,14 +88,35 @@ public class BookService : IBookService
 
             return Error.Validation([new(nameof(request.PublicationDate), $"Publication date must be before or at ({today})")]);
         }
+        var uploadResult = await _fileService.UploadAsync(request.CoverPhoto, BlobCategory.CoverPhoto, ct);
 
-        var book = request.ToEntity(normalizedIsbn);
-        await _bookRepository.AddAsync(book, ct);
-        await _bookRepository.SaveChangesAsync(ct);
-        _logger.LogInformation("Created book {BookId}.", book.Id);
+        var book = request.ToEntity(normalizedIsbn, uploadResult.FileName);
+        try
+        {
+            await _bookRepository.AddAsync(book, ct);
+            await _bookRepository.SaveChangesAsync(ct);
+            _logger.LogInformation("Created book {BookId}.", book.Id);
+            return book.ToDto(uploadResult.FileURL);
+        }
+        catch
+        {
+            await TryDeleteBlobAsync(uploadResult.FileName, BlobCategory.CoverPhoto);
+            throw;
+        }
 
-        return book.ToDto();
     }
+    private async Task TryDeleteBlobAsync(string blobName, BlobCategory blobCategory)
+    {
+        try
+        {
+            await _fileService.DeleteAsync(blobName, blobCategory, CancellationToken.None);
+        }
+        catch(Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete orphaned blob {BlobName}", blobName);
+        }
+    }
+
     public async Task<Result<BookDto>> UpdateAsync(int id, UpdateBookRequestDto request, CancellationToken ct = default)
     {
         _logger.LogInformation("Updating book with ID {BookId}.", id);
@@ -132,7 +157,44 @@ public class BookService : IBookService
         await _bookRepository.SaveChangesAsync(ct);
         _logger.LogInformation("Updated book {BookId}.", id);
 
-        return targetBook.ToDto();
+        return targetBook.ToDto(_fileService.GetURL(targetBook.CoverPhoto, BlobCategory.CoverPhoto));
+    }
+
+    public async Task<Result<BookDto>> UpdateCoverPhotoAsync(int id, UpdateCoverPhotoRequestDto request, CancellationToken ct = default)
+    {
+        _logger.LogInformation("Updating cover photo for book with ID {BookId}.", id);
+
+        var targetBook = await _bookRepository.GetByIdAsync(id, ct);
+        if(targetBook is null)
+        {
+            _logger.LogWarning("Book {BookId} was not found.", id);
+            return Error.NotFound($"Book '{id}' was not found.");
+        }
+
+        var oldPhotoName = targetBook.CoverPhoto;
+
+        var uploadResult = await _fileService.UploadAsync(request.CoverPhoto, BlobCategory.CoverPhoto, ct);
+
+        targetBook.CoverPhoto = uploadResult.FileName;
+        _bookRepository.Update(targetBook);
+
+        try
+        {
+            await _bookRepository.SaveChangesAsync(ct);
+            _logger.LogInformation("Updated cover photo for book {BookId}.", id);
+        }
+        catch
+        {
+            await TryDeleteBlobAsync(uploadResult.FileName, BlobCategory.CoverPhoto);
+            throw;
+        }
+
+        if(!string.IsNullOrEmpty(oldPhotoName))
+        {
+            await TryDeleteBlobAsync(oldPhotoName, BlobCategory.CoverPhoto);
+        }
+
+        return targetBook.ToDto(uploadResult.FileURL);
     }
     public async Task<Result> DeleteAsync(int id, CancellationToken ct = default)
     {
@@ -151,13 +213,21 @@ public class BookService : IBookService
             return Error.Conflict($"Book '{id}' cannot be deleted because one of its copies has an active loan.");
         }
 
+        var photoName = book.CoverPhoto;
+
         _bookRepository.Delete(book);
         await _bookRepository.SaveChangesAsync(ct);
         _logger.LogInformation("Deleted book {BookId}.", id);
+
+        if(!string.IsNullOrEmpty(photoName))
+        {
+            await TryDeleteBlobAsync(photoName, BlobCategory.CoverPhoto);
+        }
+
         return Result.Ok();
     }
 
-    private static Expression<Func<Book, BookDto>> BookToDtoProjection => book => new BookDto
+    private Expression<Func<Book, BookDto>> BookToDtoProjection => book => new BookDto
     {
         Id = book.Id,
         AuthorId = book.AuthorId,
@@ -166,6 +236,7 @@ public class BookService : IBookService
         Description = book.Description,
         Isbn = book.Isbn,
         Price = book.Price,
-        PublicationDate = book.PublicationDate
+        PublicationDate = book.PublicationDate,
+        CoverPhotoURL = _fileService.GetURL(book.CoverPhoto, BlobCategory.CoverPhoto)
     };
 }

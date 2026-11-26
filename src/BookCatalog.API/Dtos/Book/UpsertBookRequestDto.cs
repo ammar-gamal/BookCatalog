@@ -1,4 +1,6 @@
+using BookCatalog.API.Attributes;
 using BookCatalog.API.Entities.Enums;
+using Microsoft.AspNetCore.Mvc;
 using System.ComponentModel.DataAnnotations;
 
 namespace BookCatalog.API.Dtos.Book;
@@ -22,4 +24,6 @@ public abstract record UpsertBookRequestDto
     public BookGenre Genre { get; init; }
 
     public DateOnly PublicationDate { get; init; }
+
+
 }

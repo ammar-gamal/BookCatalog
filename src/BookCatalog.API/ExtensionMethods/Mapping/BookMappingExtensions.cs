@@ -5,7 +5,7 @@ namespace BookCatalog.API.ExtensionMethods.Mapping;
 
 public static class BookMappingExtensions
 {
-    public static Book ToEntity(this CreateBookRequestDto dto, string normalizedIsbn)
+    public static Book ToEntity(this CreateBookRequestDto dto, string normalizedIsbn, string coverPhotoName)
         => new()
         {
             AuthorId = dto.AuthorId,
@@ -16,6 +16,7 @@ public static class BookMappingExtensions
             Price = dto.Price,
             PublicationDate = dto.PublicationDate,
             NormalizedIsbn = normalizedIsbn,
+            CoverPhoto = coverPhotoName
         };
     public static void UpdateEntity(this UpdateBookRequestDto request, Book book, string normalizedIsbn)
     {
@@ -28,7 +29,7 @@ public static class BookMappingExtensions
         book.Genre = request.Genre;
         book.NormalizedIsbn = normalizedIsbn;
     }
-    public static BookDto ToDto(this Book book)
+    public static BookDto ToDto(this Book book, string coverPhotoURL)
        => new()
        {
            Id = book.Id,
@@ -38,7 +39,8 @@ public static class BookMappingExtensions
            Description = book.Description,
            Isbn = book.Isbn,
            Price = book.Price,
-           PublicationDate = book.PublicationDate
+           PublicationDate = book.PublicationDate,
+           CoverPhotoURL = coverPhotoURL
        };
 
 }

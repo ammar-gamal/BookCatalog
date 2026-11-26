@@ -4,6 +4,7 @@ using BookCatalog.API.Dtos.BookCopy;
 using BookCatalog.API.Dtos.Loan;
 using BookCatalog.API.Dtos.User;
 using BookCatalog.API.Entities.Enums;
+using BookCatalog.IntegrationTests.Helpers;
 using BookCatalog.IntegrationTests.Infrastructure;
 using FluentAssertions;
 using System.Net;
@@ -40,7 +41,7 @@ public class WorkflowTests : IntegrationTestBase
             Email = "ammar@example.com",
             Name = "Ammar"
         };
-        var userDto = await PostAsync<CreateUserRequestDto, UserDto>
+        var userDto = await PostAsJsonAsync<CreateUserRequestDto, UserDto>
                                     ("/api/users", createUserRequest, ct);
 
 
@@ -51,7 +52,7 @@ public class WorkflowTests : IntegrationTestBase
             UserId = userDto.Id,
             DueDate = DateTimeOffset.UtcNow.AddDays(2)
         };
-        var borrowBookResponseDto = await PostAsync<BorrowBookRequestDto, BorrowBookResponseDto>
+        var borrowBookResponseDto = await PostAsJsonAsync<BorrowBookRequestDto, BorrowBookResponseDto>
                                             ("/api/loans", borrowRequest, ct);
 
         //Return a book
@@ -86,14 +87,14 @@ public class WorkflowTests : IntegrationTestBase
             Email = "user1@example.com",
             Name = "user1"
         };
-        var userDto1 = await PostAsync<CreateUserRequestDto, UserDto>
+        var userDto1 = await PostAsJsonAsync<CreateUserRequestDto, UserDto>
                                     ("/api/users", createUserRequest1, ct);
         var createUserRequest2 = new CreateUserRequestDto()
         {
             Email = "user2@example.com",
             Name = "user2"
         };
-        var userDto2 = await PostAsync<CreateUserRequestDto, UserDto>
+        var userDto2 = await PostAsJsonAsync<CreateUserRequestDto, UserDto>
                                     ("/api/users", createUserRequest2, ct);
 
 
@@ -104,7 +105,7 @@ public class WorkflowTests : IntegrationTestBase
             UserId = userDto1.Id,
             DueDate = DateTimeOffset.UtcNow.AddDays(2)
         };
-        var borrowBookResponseDto1 = await PostAsync<BorrowBookRequestDto, BorrowBookResponseDto>
+        var borrowBookResponseDto1 = await PostAsJsonAsync<BorrowBookRequestDto, BorrowBookResponseDto>
                                             ("/api/loans", borrowRequest1, ct);
 
 
@@ -123,7 +124,7 @@ public class WorkflowTests : IntegrationTestBase
         returnResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         //User2 loan the book
-        var borrowBookResponseDto2 = await PostAsync<BorrowBookRequestDto, BorrowBookResponseDto>
+        var borrowBookResponseDto2 = await PostAsJsonAsync<BorrowBookRequestDto, BorrowBookResponseDto>
                                           ("/api/loans", borrowRequest2, ct);
 
         //Get the loan
@@ -154,7 +155,7 @@ public class WorkflowTests : IntegrationTestBase
             Email = "return_twice_user@example.com",
             Name = "ReturnTwiceUser"
         };
-        var userDto = await PostAsync<CreateUserRequestDto, UserDto>("/api/users", createUserRequest, ct);
+        var userDto = await PostAsJsonAsync<CreateUserRequestDto, UserDto>("/api/users", createUserRequest, ct);
 
         // Borrowing the book copy
         var borrowRequest = new BorrowBookRequestDto
@@ -163,7 +164,7 @@ public class WorkflowTests : IntegrationTestBase
             UserId = userDto.Id,
             DueDate = DateTimeOffset.UtcNow.AddDays(2)
         };
-        var borrowResponse = await PostAsync<BorrowBookRequestDto, BorrowBookResponseDto>("/api/loans", borrowRequest, ct);
+        var borrowResponse = await PostAsJsonAsync<BorrowBookRequestDto, BorrowBookResponseDto>("/api/loans", borrowRequest, ct);
 
         // First return attempt -> Expect 204 NoContent
         var firstReturnResponse = await _client.PatchAsync($"/api/loans/{borrowResponse.Id}", null, ct);
@@ -185,29 +186,32 @@ public class WorkflowTests : IntegrationTestBase
     #region Helpers
     private async Task<(AuthorDto AuthorDto, BookDto BookDto, BookCopyDto CopyDto)> CreateAuthorWithBookWithCopy(CancellationToken ct)
     {
-        var authorDto = await PostAsync<CreateAuthorRequestDto, AuthorDto>(
+        var authorDto = await PostAsJsonAsync<CreateAuthorRequestDto, AuthorDto>(
             "/api/authors", new CreateAuthorRequestDto { Name = "Name", Biography = "Biography" }, ct);
 
-        var bookDto = await PostAsync<CreateBookRequestDto, BookDto>(
-            "/api/books",
-            new CreateBookRequestDto
-            {
-                AuthorId = authorDto.Id,
-                Description = "Description",
-                Title = "Title",
-                Genre = BookGenre.Fiction,
-                Price = 99.99m,
-                Isbn = $"ISBN-{Guid.NewGuid():N}"[..13],
-                PublicationDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2))
-            }, ct, options: _jsonOptions);
+        var createBookRequestDto = new CreateBookRequestDto
+        {
+            AuthorId = authorDto.Id,
+            Description = "Description",
+            Title = "Title",
+            Genre = BookGenre.Fiction,
+            Price = 99.99m,
+            Isbn = $"ISBN-{Guid.NewGuid():N}"[..13],
+            PublicationDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2))
+        };
+        using var content = ToFormData(createBookRequestDto, TestImages.ValidJpeg);
+        var response = await _client.PostAsync("/api/books", content, ct);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
 
-        var copyDto = await PostAsync<CreateBookCopyRequestDto, BookCopyDto>(
+        var bookDto = await response.Content.ReadFromJsonAsync<BookDto>(_jsonOptions, ct);
+
+        var copyDto = await PostAsJsonAsync<CreateBookCopyRequestDto, BookCopyDto>(
             "/api/book-copies", new CreateBookCopyRequestDto { Barcode = $"BC-{Guid.NewGuid():N}"[..13], BookId = bookDto.Id }, ct);
 
         return (authorDto, bookDto, copyDto);
     }
 
-    private async Task<TResponse> PostAsync<TRequest, TResponse>(
+    private async Task<TResponse> PostAsJsonAsync<TRequest, TResponse>(
     string url,
     TRequest request,
     CancellationToken ct,

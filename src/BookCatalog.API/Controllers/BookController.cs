@@ -43,7 +43,7 @@ public class BookController : AppController
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Create([FromBody] CreateBookRequestDto request, CancellationToken cancellationToken)
+    public async Task<IActionResult> Create([FromForm] CreateBookRequestDto request, CancellationToken cancellationToken)
     {
         var result = await _bookService.CreateAsync(request, cancellationToken);
         if(!result.IsSuccess)
@@ -60,6 +60,19 @@ public class BookController : AppController
     public async Task<IActionResult> Update(int id, [FromBody] UpdateBookRequestDto request, CancellationToken cancellationToken)
     {
         var result = await _bookService.UpdateAsync(id, request, cancellationToken);
+        if(!result.IsSuccess)
+            return HandleError(result);
+
+        return Ok(result.Data);
+    }
+
+    [HttpPut("{id:int}/cover-photo")]
+    [ProducesResponseType(typeof(BookDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> UpdateCoverPhoto(int id, [FromForm] UpdateCoverPhotoRequestDto request, CancellationToken cancellationToken)
+    {
+        var result = await _bookService.UpdateCoverPhotoAsync(id, request, cancellationToken);
         if(!result.IsSuccess)
             return HandleError(result);
 
