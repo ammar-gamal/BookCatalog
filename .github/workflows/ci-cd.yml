@@ -218,6 +218,7 @@ jobs:
           SQL_DATABASE_NAME: ${{ needs.deploy-sql.outputs.databaseName }}
           APP_IDENTITY_CLIENT_ID: ${{ needs.deploy-app-identity.outputs.identityClientId }}
           APP_IDENTITY_ID: ${{ needs.deploy-app-identity.outputs.identityId }}
+          APP_IDENTITY_PRINCIPAL_ID: ${{ needs.deploy-app-identity.outputs.identityPrincipalId}}
         steps:
             - name: Checkout Code
               uses: actions/checkout@v4
@@ -242,6 +243,8 @@ jobs:
                     "apiImage": "${{ env.API_IMAGE }}",
                     "applicationName": "${{ vars.APP_NAME }}",
                     "connectionString": "Server=tcp:${{ env.SQL_SERVER_FQDN }},1433;Database=${{ env.SQL_DATABASE_NAME }};Authentication=Active Directory Managed Identity;User Id=${{ env.APP_IDENTITY_CLIENT_ID }};",
-                    "applicationManagedIdentityId": "${{ env.APP_IDENTITY_ID }}"
+                    "applicationManagedIdentityId": "${{ env.APP_IDENTITY_ID }}",
+                    "applicationManagedIdentityClientId": "${{env.APP_IDENTITY_CLIENT_ID}}",
+                    "applicationManagedIdentityPrincipalId": "${{env.APP_IDENTITY_PRINCIPAL_ID}}"
                   }
           
